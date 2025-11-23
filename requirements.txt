@@ -1,0 +1,13 @@
+streamlit
+openai-whisper
+torch
+deep-translator
+gTTS
+easyocr
+opencv-python-headless
+Pillow
+numpy
+pydub
+streamlit-audiorec
+SpeechRecognition
+audio-recorder-streamlit
