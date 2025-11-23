@@ -1,49 +1,65 @@
-## stt.py
-# stt.py
+# stt.py – final version using SpeechRecognition + Google Web Speech API
+
+from __future__ import annotations
 
 import speech_recognition as sr
+import streamlit as st
 
-# Map your UI language names to Google STT language codes
-LANG_CODE_MAP = {
-    "English": "en-IN",     # Indian English
-    "Hindi": "hi-IN",
-    "Kannada": "kn-IN",
-    "Tamil": "ta-IN",
-    "Telugu": "te-IN",
-    "Malayalam": "ml-IN",
-    "Marathi": "mr-IN",
-    # add more if you want: "French": "fr-FR", etc.
-}
-
-_recognizer = sr.Recognizer()
+from languages import lang_code_for_translation
 
 
-def _get_lang_code(source_language_name: str) -> str:
-    """Return Google STT language code for the given language name."""
-    return LANG_CODE_MAP.get(source_language_name, "en-IN")
-
-
-def speech_to_text(audio_file_path: str, source_language_name: str = None) -> str:
+def _stt_code_for_language(lang_name: str) -> str:
     """
-    Convert speech in an audio file to text using Google Web Speech API.
+    Map our language name to a code usable by Google's STT.
 
-    - Expects a WAV file (which audio_recorder_streamlit creates).
-    - Returns "" if nothing could be recognized or an error happened.
+    We reuse lang_code_for_translation(). If it returns something
+    empty or strange, we fall back to English ("en-US").
     """
-    lang_code = _get_lang_code(source_language_name or "English")
+    if not isinstance(lang_name, str):
+        return "en-US"
+
+    code = (lang_code_for_translation(lang_name) or "").strip().lower()
+
+    # Google Web Speech API usually accepts simple ISO codes like "en", "hi", "ar".
+    # If we don't get anything, fall back to English (US).
+    if not code:
+        return "en-US"
+
+    return code
+
+
+def speech_to_text(audio_path: str, language_name: str) -> str:
+    """
+    Convert speech audio file to text.
+
+    Parameters
+    ----------
+    audio_path : str
+        Path to a WAV audio file.
+    language_name : str
+        Human-readable language name (e.g. "English", "Hindi").
+
+    Returns
+    -------
+    str
+        Recognized text, or "" if recognition failed.
+    """
+    recognizer = sr.Recognizer()
+    stt_lang = _stt_code_for_language(language_name)
 
     try:
-        with sr.AudioFile(audio_file_path) as source:
-            audio_data = _recognizer.record(source)
+        with sr.AudioFile(audio_path) as source:
+            audio_data = recognizer.record(source)
 
-        # Try to recognize using Google's free web API
-        text = _recognizer.recognize_google(audio_data, language=lang_code)
-        return text.strip()
-
+        # You need internet for this to work
+        text = recognizer.recognize_google(audio_data, language=stt_lang)
+        return text or ""
     except sr.UnknownValueError:
-        # Speech was detected but not understood
+        # Speech was not understood
+        return ""
+    except sr.RequestError as e:
+        st.error(f"Speech recognition error (API): {e}")
         return ""
     except Exception as e:
-        # Any other error (network, format, etc.)
-        print(f"[STT ERROR] {e}")
+        st.error(f"Speech recognition error: {e}")
         return ""

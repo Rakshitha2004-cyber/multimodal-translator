@@ -1,176 +1,222 @@
 # conversation.py
+# conversation.py – Doctor–Patient back-and-forth mode (final)
+
+from __future__ import annotations
+
+import tempfile
 
 import streamlit as st
-import tempfile
-from datetime import datetime
 
+from mic_ui import medical_mic
 from stt import speech_to_text
 from translate import translate_text
 from tts import text_to_speech_file, cleanup_temp_file
-from languages import has_sr_support
-from themes import apply_theme
-from mic_ui import medical_mic   # premium mic UI
 
 
-def _init_conversation_state():
-    if "conversation" not in st.session_state:
-        st.session_state.conversation = []   # list of dicts
-    if "conv_css_loaded" not in st.session_state:
+def _append_history(role: str, src_text: str, tgt_text: str):
+    """
+    Save one turn of the conversation into session_state.
+    """
+    if "conv_history" not in st.session_state:
+        st.session_state["conv_history"] = []
+
+    st.session_state["conv_history"].append(
+        {
+            "role": role,
+            "source": src_text,
+            "translated": tgt_text,
+        }
+    )
+
+
+def _render_history():
+    """
+    Show conversation history nicely.
+    """
+    history = st.session_state.get("conv_history", [])
+    if not history:
+        st.info("No conversation yet. Record speech from patient or doctor to begin.")
+        return
+
+    st.markdown("### 🧾 Conversation History")
+    for i, turn in enumerate(history, start=1):
+        role = turn["role"]
+        src = turn["source"]
+        tgt = turn["translated"]
+
         st.markdown(
-            """
-            <style>
-            .bubble-patient {
-                background: #eff6ff;
-                border-radius: 16px;
-                padding: 0.6rem 0.9rem;
-                margin-bottom: 0.4rem;
-                border: 1px solid rgba(37, 99, 235, 0.35);
-            }
-            .bubble-doctor {
-                background: #ecfdf5;
-                border-radius: 16px;
-                padding: 0.6rem 0.9rem;
-                margin-bottom: 0.4rem;
-                border: 1px solid rgba(16, 185, 129, 0.4);
-            }
-            .bubble-meta {
-                font-size: 0.75rem;
-                color: #6b7280;
-                margin-bottom: 0.2rem;
-            }
-            </style>
+            f"""
+            <div class="app-card" style="margin-bottom:0.6rem;">
+              <div class="pill-label">Turn {i} – {role}</div>
+              <div style="font-size:0.9rem; margin-top:0.3rem;">
+                <b>Original:</b> {src}
+              </div>
+              <div style="font-size:0.9rem; margin-top:0.2rem;">
+                <b>Translated:</b> {tgt}
+              </div>
+            </div>
             """,
             unsafe_allow_html=True,
         )
-        st.session_state["conv_css_loaded"] = True
 
 
-def _record_and_process(role_label: str, src_lang: str, tgt_lang: str):
-    """Handle one side speaking (Patient or Doctor)."""
-    if not has_sr_support(src_lang):
-        st.error(f"Speech recognition for '{src_lang}' is not configured. Please choose another language.")
+def _process_speech(
+    audio_bytes: bytes | None,
+    from_lang_name: str,
+    to_lang_name: str,
+    speaker_label: str,
+    listener_label: str,
+):
+    """
+    Common helper to process a recorded utterance:
+    - STT in speaker language
+    - Translate to listener language
+    - TTS audio in listener language
+    """
+    if audio_bytes is None:
+        st.error(f"Please record {speaker_label} audio before processing.")
         return
 
-    wav_bytes = medical_mic(f"{role_label} Microphone", key=role_label.lower())
+    # Save mic bytes to temp WAV
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+    tmp.write(audio_bytes)
+    tmp.flush()
+    tmp.close()
+    audio_path = tmp.name
 
-    if wav_bytes is None:
-        st.info("Record audio above, then click the button to process.")
-        return
+    try:
+        # ---- STT ----
+        with st.spinner(f"Recognizing {speaker_label.lower()} speech..."):
+            src_text = speech_to_text(audio_path, from_lang_name)
 
-    st.audio(wav_bytes, format="audio/wav")
+        if not src_text or not src_text.strip():
+            st.error(
+                "I could not recognize any speech. "
+                "Please record again, speaking clearly and closer to the microphone."
+            )
+            return
 
-    if st.button(f"Process {role_label} Speech", key=f"process_{role_label}"):
-        with st.spinner("Translating..."):
-            # Save to temp wav
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-            tmp.write(wav_bytes)
-            tmp.flush()
-            tmp.close()
-            audio_path = tmp.name
+        # ---- Translation ----
+        with st.spinner("Translating and generating reply audio..."):
+            tgt_text = translate_text(src_text, from_lang_name, to_lang_name)
 
-            try:
-                src_text = speech_to_text(audio_path, source_language_name=src_lang)
+        _append_history(f"{speaker_label} ➜ {listener_label}", src_text, tgt_text)
 
-                if not src_text or not src_text.strip():
-                    st.error(
-                        f"❗ I could not recognize {role_label.lower()}'s speech.\n\n"
-                        "Please record again, speaking clearly and closer to the microphone."
-                    )
-                    cleanup_temp_file(audio_path)
-                    return
+        st.success(f"{speaker_label} speech processed.")
+        st.markdown(f"**Recognized {speaker_label.lower()} speech:**")
+        st.write(src_text)
+        st.markdown(f"**Translated for {listener_label.lower()}:**")
+        st.write(tgt_text)
 
-                translated = translate_text(src_text, src_lang, tgt_lang)
-                tts_path = text_to_speech_file(translated, tgt_lang)
+        # ---- TTS in listener language ----
+        if tgt_text and tgt_text.strip():
+            tts_path = text_to_speech_file(tgt_text, to_lang_name)
+            if tts_path:
+                with open(tts_path, "rb") as f:
+                    audio_bytes_out = f.read()
+                st.markdown(f"**{listener_label} hears (audio):**")
+                st.audio(audio_bytes_out, format="audio/mp3")
+                cleanup_temp_file(tts_path)
 
-                st.markdown(f"**{role_label} said (recognized):**")
-                st.write(src_text)
-
-                st.markdown("**Translated message:**")
-                st.write(translated)
-
-                if tts_path:
-                    with open(tts_path, "rb") as f:
-                        audio_bytes = f.read()
-                    st.markdown("**Play translated audio:**")
-                    st.audio(audio_bytes, format="audio/mp3")
-
-                # Save in conversation history
-                st.session_state.conversation.append({
-                    "speaker": role_label,
-                    "src_lang": src_lang,
-                    "tgt_lang": tgt_lang,
-                    "text": src_text,
-                    "translated": translated,
-                    "time": datetime.now().strftime("%H:%M"),
-                    "tts_path": tts_path,
-                })
-
-            except Exception as e:
-                st.error(f"Error: {e}")
-            finally:
-                cleanup_temp_file(audio_path)
+    except Exception as e:
+        st.error(f"Error while processing {speaker_label.lower()} speech: {e}")
+    finally:
+        cleanup_temp_file(audio_path)
 
 
-def show_conversation(theme: str, languages: list[str]):
-    apply_theme(theme)
-    _init_conversation_state()
+def show_conversation(theme_choice: str, languages: list[str]):
+    """
+    Main entry point for Doctor–Patient Chat page.
+    Called from main_app.main().
+    """
 
-    st.title("🤝 Doctor–Patient Conversation Mode")
+    default_patient = languages.index("English") if "English" in languages else 0
+    default_doctor = (
+        languages.index("Hindi")
+        if "Hindi" in languages
+        else (1 if len(languages) > 1 else 0)
+    )
 
-    st.markdown("""
-    This mode allows back-and-forth conversation:
-    - Patient speaks in their language  
-    - Doctor hears + sees translation in their language  
-    - Doctor replies in their language  
-    - Patient hears the translated reply  
-    """)
+    st.markdown(
+        """
+        <div class="app-card" style="margin-top:0.8rem;">
+          <div class="pill-label">Doctor–Patient Conversation Mode</div>
+          <div style="display:flex; align-items:center; gap:0.4rem;">
+            <span style="font-size:1.3rem;">🗣️</span>
+            <div class="main-subtitle">
+              Turn-based conversation: patient speaks, doctor hears translation;
+              then doctor replies, patient hears translation.
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    col_lang1, col_lang2 = st.columns(2)
-    with col_lang1:
+    # Language configuration
+    st.markdown("### 🌐 Choose conversation languages")
+    col_plang, col_dlang = st.columns(2)
+    with col_plang:
         patient_lang = st.selectbox(
-            "Patient Language",
-            languages,
-            index=languages.index("English") if "English" in languages else 0,
-            key="conv_patient_lang"
+            "Patient language", languages, index=default_patient, key="conv_patient_lang"
         )
-    with col_lang2:
+    with col_dlang:
         doctor_lang = st.selectbox(
-            "Doctor Language",
-            languages,
-            index=languages.index("Hindi") if "Hindi" in languages else 0,
-            key="conv_doctor_lang"
+            "Doctor language", languages, index=default_doctor, key="conv_doctor_lang"
         )
 
     st.markdown("---")
 
+    # Ensure session_state keys exist
+    if "conv_patient_audio" not in st.session_state:
+        st.session_state["conv_patient_audio"] = None
+    if "conv_doctor_audio" not in st.session_state:
+        st.session_state["conv_doctor_audio"] = None
+
+    # Two-column layout: Patient speaks, Doctor speaks
     col_patient, col_doctor = st.columns(2)
 
+    # ----- Patient side -----
     with col_patient:
-        st.subheader("🧑‍🌾 Patient Speaks")
-        _record_and_process("Patient", patient_lang, doctor_lang)
+        st.markdown("### 👩‍🌾 Patient Speaks")
+        st.markdown("**Patient Microphone**")
+        st.caption("Tap the microphone once to start, and again to stop recording.")
 
+        audio_patient = medical_mic("Patient microphone", key="conv_patient_mic")
+        if audio_patient is not None:
+            st.session_state["conv_patient_audio"] = audio_patient
+            st.success("Recording saved.")
+            st.audio(audio_patient, format="audio/wav")
+
+        if st.button("Process Patient Speech", key="btn_process_patient"):
+            _process_speech(
+                st.session_state["conv_patient_audio"],
+                patient_lang,
+                doctor_lang,
+                "Patient",
+                "Doctor",
+            )
+
+    # ----- Doctor side -----
     with col_doctor:
-        st.subheader("👩‍⚕️ Doctor Speaks")
-        _record_and_process("Doctor", doctor_lang, patient_lang)
+        st.markdown("### 🧑‍⚕️ Doctor Speaks")
+        st.markdown("**Doctor Microphone**")
+        st.caption("Tap the microphone once to start, and again to stop recording.")
+
+        audio_doctor = medical_mic("Doctor microphone", key="conv_doctor_mic")
+        if audio_doctor is not None:
+            st.session_state["conv_doctor_audio"] = audio_doctor
+            st.info("Record audio above, then click the button to process.")
+            st.audio(audio_doctor, format="audio/wav")
+
+        if st.button("Process Doctor Speech", key="btn_process_doctor"):
+            _process_speech(
+                st.session_state["conv_doctor_audio"],
+                doctor_lang,
+                patient_lang,
+                "Doctor",
+                "Patient",
+            )
 
     st.markdown("---")
-    st.subheader("📝 Conversation History")
-
-    if not st.session_state.conversation:
-        st.info("No messages yet. Start the conversation using the microphones above.")
-    else:
-        for i, msg in enumerate(st.session_state.conversation, start=1):
-            css_class = "bubble-patient" if msg["speaker"] == "Patient" else "bubble-doctor"
-            st.markdown(
-                f"""
-                <div class="{css_class}">
-                  <div class="bubble-meta">
-                    <b>{i}. {msg['speaker']}</b>
-                    · {msg['src_lang']} → {msg['tgt_lang']}
-                    · {msg['time']}
-                  </div>
-                  <div>{msg['translated']}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+    _render_history()

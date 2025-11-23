@@ -1,364 +1,468 @@
-# main_app.py
+# main_app.py – Final premium version
+
+from __future__ import annotations
+
+import tempfile
 
 import streamlit as st
 from PIL import Image
-import tempfile
 
 from utils import get_language_list
+from themes import apply_theme
+from homepage import show_homepage
+from mic_ui import medical_mic
+from conversation import show_conversation
+
 from stt import speech_to_text
 from translate import translate_text
 from tts import text_to_speech_file, cleanup_temp_file
 from ocr import ocr_image
-from languages import has_sr_support
-from themes import apply_theme
-from homepage import show_home
-from conversation import show_conversation
-from mic_ui import medical_mic   # premium mic UI
 
 
-# ----------------- PAGE CONFIG -----------------
-
+# ---------- PAGE CONFIG ----------
 st.set_page_config(
     page_title="Multimodal AI Medical Translator",
-    page_icon="🌐",
-    layout="wide"
+    page_icon="🩺",
+    layout="wide",
 )
 
-# ---------- THEME SELECTION + NAVIGATION ----------
 
-if "theme" not in st.session_state:
-    st.session_state["theme"] = "Light"
+# ---------- UI HELPERS ----------
 
-st.sidebar.subheader("🌓 Theme")
-theme_choice = st.sidebar.radio(
-    "Choose Theme",
-    ["Light", "Dark"],
-    index=0
-)
-st.session_state.theme = theme_choice
-
-# Apply selected theme
-apply_theme(st.session_state.theme)
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("📍 Navigation")
-page = st.sidebar.radio(
-    "Go to",
-    ["Home", "Translator", "Doctor–Patient Chat"],
-    index=0
-)
-
-languages = get_language_list()
-st.session_state.languages = languages  # for other modules if needed
-
-# store last mic recording path for speech tab
-if "last_recorded_path" not in st.session_state:
-    st.session_state["last_recorded_path"] = None
-
-# -------------------------------------------------
+def _section_header(title: str, subtitle: str | None = None, icon: str = ""):
+    icon_html = (
+        f"<span style='font-size:1.3rem; margin-right:0.4rem;'>{icon}</span>"
+        if icon
+        else ""
+    )
+    st.markdown(
+        f"""
+        <div style="margin-top:0.6rem; margin-bottom:0.4rem;">
+          <div style="display:flex; align-items:center; gap:0.3rem;">
+            {icon_html}
+            <span style="font-size:1.2rem; font-weight:700; letter-spacing:0.02em;">
+                {title}
+            </span>
+          </div>
+          <div class="secondary-text">{subtitle or ""}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
-# ============== HOME PAGE =========================
+def _write_result_block(title: str, text: str):
+    if not text:
+        return
+    st.markdown(
+        f"""
+        <div class="app-card">
+          <div class="pill-label">{title}</div>
+          <div style="font-size:0.95rem; line-height:1.6;">{text}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-if page == "Home":
-    show_home(st.session_state.theme)
 
+# ---------- TRANSLATOR – SPEECH TAB ----------
 
-# ============== TRANSLATOR PAGE ===================
+def show_speech_tab(languages: list[str]):
+    col_src, col_tgt = st.columns(2)
 
-if page == "Translator":
+    # sensible defaults
+    default_src = languages.index("English") if "English" in languages else 0
+    default_tgt = (
+        languages.index("Hindi")
+        if "Hindi" in languages
+        else (1 if len(languages) > 1 else 0)
+    )
 
-    st.title("🌐 Multimodal AI Medical Translator")
-    st.caption("For doctors and rural patients – voice, text & image translation across 100+ languages")
+    with col_src:
+        _section_header("Source (Patient)", "Patient speaks in their language", "🧑‍🌾")
+        src_lang_name = st.selectbox(
+            "Patient language",
+            languages,
+            key="speech_src_lang",
+            index=default_src,
+        )
 
-    tabs = st.tabs(["🗣 Speech", "📝 Text", "🖼 Image"])
+    with col_tgt:
+        _section_header(
+            "Target (Doctor)", "Doctor hears translation in this language", "👩‍⚕️"
+        )
+        tgt_lang_name = st.selectbox(
+            "Doctor language",
+            languages,
+            key="speech_tgt_lang",
+            index=default_tgt,
+        )
 
-    # ----------------- SPEECH TAB -----------------
+    st.markdown("---")
 
-    with tabs[0]:
-        st.subheader("Speech to Speech Translation")
+    col_file, col_mic = st.columns(2)
 
-        col1, col2 = st.columns(2)
+    # Option 1 – upload wav
+    with col_file:
+        st.markdown(
+            """
+            <div class="app-card">
+              <h4>Option 1 – Upload audio file (WAV only)</h4>
+              <p class="secondary-text">
+                Use this if you already have a recorded patient audio sample.
+              </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        uploaded = st.file_uploader(
+            "Upload patient audio file",
+            type=["wav"],
+            key="speech_file",
+        )
 
-        # -------- LEFT: SOURCE / PATIENT --------
-        with col1:
-            st.markdown("#### Source (Patient)")
-            src_lang = st.selectbox(
-                "Patient Language",
-                languages,
-                index=languages.index("English") if "English" in languages else 0,
-                key="src_lang_speech"
+    # Option 2 – mic
+    mic_audio = None
+    with col_mic:
+        st.markdown(
+            """
+            <div class="app-card">
+              <h4>Option 2 – Record using microphone</h4>
+              <p class="secondary-text">
+                Click the microphone, speak clearly, then click again to stop.
+              </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        mic_audio = medical_mic("Patient Microphone", key="translator_patient")
+
+    st.markdown("")
+
+    # Translate button
+    btn_col = st.container()
+    with btn_col:
+        translate_clicked = st.button("🔁 Translate Speech", type="primary")
+
+    if not translate_clicked:
+        return
+
+    # Choose source audio
+    audio_bytes = None
+    if uploaded is not None:
+        audio_bytes = uploaded.read()
+        st.success("Uploaded audio file received.")
+        st.audio(audio_bytes, format="audio/wav")
+    elif mic_audio is not None:
+        audio_bytes = mic_audio
+        st.audio(audio_bytes, format="audio/wav")
+    else:
+        st.error("Please upload an audio file **or** record using the microphone.")
+        return
+
+    # Save to temp WAV file
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+    tmp.write(audio_bytes)
+    tmp.flush()
+    tmp.close()
+    audio_path = tmp.name
+
+    try:
+        # -------- STT --------
+        with st.spinner("Recognizing patient speech..."):
+            text_src = speech_to_text(audio_path, src_lang_name)
+
+        if not text_src or not text_src.strip():
+            st.error(
+                "❗ I could not recognize any speech.\n\n"
+                "Please record again, speaking clearly and closer to the microphone."
             )
+            return
 
-            st.markdown("**Option 1 – Upload audio file (WAV only)**")
-            uploaded_audio = st.file_uploader(
-                "Upload patient audio file",
-                type=["wav"],
-                key="upload_audio"
-            )
+        # -------- Translation + TTS --------
+        with st.spinner("Translating and generating doctor audio..."):
+            text_tgt = translate_text(text_src, src_lang_name, tgt_lang_name)
 
-            st.markdown("---")
-            st.markdown("**Option 2 – Record using microphone**")
+            _write_result_block("Recognized patient speech", text_src)
+            _write_result_block("Translated for doctor", text_tgt)
 
-            # load previously saved recording path (if any)
-            recorded_path = st.session_state.get("last_recorded_path", None)
-
-            # PREMIUM MIC UI
-            wav_audio_data = medical_mic("Patient Microphone", key="translator")
-
-            # if user recorded new audio, save it
-            if wav_audio_data is not None:
-                # remove old recording if any
-                old_path = st.session_state.get("last_recorded_path")
-                if old_path:
-                    cleanup_temp_file(old_path)
-
-                tmp_rec = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-                tmp_rec.write(wav_audio_data)
-                tmp_rec.flush()
-                tmp_rec.close()
-                recorded_path = tmp_rec.name
-                st.session_state["last_recorded_path"] = recorded_path
-
-            # Status for user
-            if uploaded_audio is not None:
-                st.info("✅ Audio file uploaded – ready to translate.")
-            elif st.session_state.get("last_recorded_path"):
-                st.info("✅ Microphone recording saved – ready to translate.")
+            if text_tgt and text_tgt.strip():
+                tts_path = text_to_speech_file(text_tgt, tgt_lang_name)
+                if tts_path:
+                    with open(tts_path, "rb") as f:
+                        tts_bytes = f.read()
+                    st.markdown("**Doctor hears (audio):**")
+                    st.audio(tts_bytes, format="audio/mp3")
+                    cleanup_temp_file(tts_path)
+                else:
+                    st.warning(
+                        "TTS could not generate audio for the translated text "
+                        "(see any error message in the terminal)."
+                    )
             else:
-                st.info("ℹ Upload a WAV file or record using the microphone, then click **Translate Speech**.")
+                st.warning("Translation text is empty, so TTS was skipped.")
 
-        # -------- RIGHT: TARGET / DOCTOR --------
-        with col2:
-            st.markdown("#### Target (Doctor)")
-            tgt_lang = st.selectbox(
-                "Doctor Language",
-                languages,
-                index=languages.index("Hindi") if "Hindi" in languages else 0,
-                key="tgt_lang_speech"
-            )
+    except Exception as e:
+        st.error(f"Error while translating speech: {e}")
+    finally:
+        cleanup_temp_file(audio_path)
 
-        # -------- TRANSLATE BUTTON (only active when audio exists) --------
-        can_translate = (uploaded_audio is not None) or bool(st.session_state.get("last_recorded_path"))
 
-        col_btn, col_msg = st.columns([1, 3])
-        with col_btn:
-            translate_clicked = st.button(
-                "Translate Speech",
-                type="primary",
-                key="btn_speech",
-                disabled=not can_translate,
-            )
+# ---------- TRANSLATOR – TEXT TAB ----------
 
-        with col_msg:
-            if not can_translate:
-                st.warning("🔒 Waiting for audio input... upload a file or record with the mic.")
+def show_text_tab(languages: list[str]):
+    col_src, col_tgt = st.columns(2)
 
-        if translate_clicked and can_translate:
-            temp_uploaded_path = None
-            audio_path = None
+    default_src = languages.index("English") if "English" in languages else 0
+    default_tgt = (
+        languages.index("Hindi")
+        if "Hindi" in languages
+        else (1 if len(languages) > 1 else 0)
+    )
 
-            # Priority: uploaded file > last mic recording
-            if uploaded_audio is not None:
-                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-                tmp.write(uploaded_audio.read())
-                tmp.flush()
-                tmp.close()
-                temp_uploaded_path = tmp.name
-                audio_path = temp_uploaded_path
-            elif st.session_state.get("last_recorded_path"):
-                audio_path = st.session_state["last_recorded_path"]
+    with col_src:
+        _section_header("Source Text", "Enter patient or doctor text", "💬")
+        src_lang_name = st.selectbox(
+            "Source language",
+            languages,
+            key="text_src_lang",
+            index=default_src,
+        )
 
-            if not has_sr_support(src_lang):
-                st.error(
-                    f"Speech recognition for '{src_lang}' is not configured. "
-                    "Please use the Text tab for this language, or choose a supported language for microphone input."
+    with col_tgt:
+        _section_header("Target Text", "Output translation", "🌐")
+        tgt_lang_name = st.selectbox(
+            "Target language",
+            languages,
+            key="text_tgt_lang",
+            index=default_tgt,
+        )
+
+    st.markdown("")
+
+    st.markdown(
+        """
+        <div class="app-card">
+          <h4>Enter text to translate</h4>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    text_input = st.text_area(
+        "Type or paste text here",
+        height=160,
+        key="text_input_area",
+    )
+
+    col_btn1, col_btn2 = st.columns([1, 1])
+    with col_btn1:
+        translate_clicked = st.button("🔁 Translate Text", type="primary")
+    with col_btn2:
+        tts_toggle = st.checkbox(
+            "🔊 Also generate audio for translated text", value=True
+        )
+
+    if not translate_clicked:
+        return
+
+    if not text_input or not text_input.strip():
+        st.error("Please enter some text to translate.")
+        return
+
+    try:
+        with st.spinner("Translating text..."):
+            translated = translate_text(text_input, src_lang_name, tgt_lang_name)
+
+        _write_result_block("Original text", text_input)
+        _write_result_block("Translated text", translated)
+
+        if tts_toggle and translated and translated.strip():
+            tts_path = text_to_speech_file(translated, tgt_lang_name)
+            if tts_path:
+                with open(tts_path, "rb") as f:
+                    audio_bytes = f.read()
+                st.markdown("**Translated audio:**")
+                st.audio(audio_bytes, format="audio/mp3")
+                cleanup_temp_file(tts_path)
+            else:
+                st.warning(
+                    "TTS could not generate audio for the translated text "
+                    "(see any error message in the terminal)."
                 )
-            else:
-                with st.spinner("Processing audio..."):
-                    try:
-                        # 1) Speech -> Text
-                        source_text = speech_to_text(audio_path, source_language_name=src_lang)
+    except Exception as e:
+        st.error(f"Error while translating text: {e}")
 
-                        # ---- handle empty transcription safely ----
-                        if not source_text or not source_text.strip():
-                            st.error(
-                                "❗ I could not recognize any speech from this audio.\n\n"
-                                "Please speak a bit louder and closer to the microphone, "
-                                "then record again."
-                            )
-                        else:
-                            # 2) Text -> Translated Text
-                            translated_text = translate_text(source_text, src_lang, tgt_lang)
 
-                            # 3) Translated Text -> Speech
-                            tts_path = text_to_speech_file(translated_text, tgt_lang)
+# ---------- TRANSLATOR – IMAGE TAB (FINAL) ----------
 
-                            st.success("Done!")
+def show_image_tab(languages: list[str]):
+    col_src, col_tgt = st.columns(2)
 
-                            st.markdown("##### Recognized Patient Speech")
-                            st.write(source_text)
+    default_src = languages.index("English") if "English" in languages else 0
+    default_tgt = (
+        languages.index("Hindi")
+        if "Hindi" in languages
+        else (1 if len(languages) > 1 else 0)
+    )
 
-                            st.markdown("##### Translated for Doctor")
-                            st.write(translated_text)
+    with col_src:
+        _section_header(
+            "Source (Image OCR)", "Upload prescription / note image", "🧾"
+        )
+        src_lang_name = st.selectbox(
+            "Language in the image",
+            languages,
+            key="img_src_lang",
+            index=default_src,
+        )
 
-                            if tts_path:
-                                st.markdown("##### Audio (Doctor side)")
-                                with open(tts_path, "rb") as f:
-                                    audio_bytes = f.read()
-                                st.audio(audio_bytes, format="audio/mp3")
-                            else:
-                                st.warning("Translation text was empty – skipping audio.")
-                    except Exception as e:
-                        st.error(f"Error while translating speech: {e}")
-                    finally:
-                        # clean up temporary files
-                        if temp_uploaded_path:
-                            cleanup_temp_file(temp_uploaded_path)
-                        if st.session_state.get("last_recorded_path"):
-                            cleanup_temp_file(st.session_state["last_recorded_path"])
-                            st.session_state["last_recorded_path"] = None
-                        if 'tts_path' in locals() and tts_path:
-                            cleanup_temp_file(tts_path)
+    with col_tgt:
+        _section_header("Target language", "Language for translated text/audio", "🌐")
+        tgt_lang_name = st.selectbox(
+            "Target language",
+            languages,
+            key="img_tgt_lang",
+            index=default_tgt,
+        )
 
-    # ----------------- TEXT TAB -----------------
+    st.markdown("")
 
+    st.markdown(
+        """
+        <div class="app-card">
+          <h4>Upload image</h4>
+          <p class="secondary-text">
+            Clear photos of prescriptions or notes work best. Handwritten text is
+            supported, but accuracy depends on legibility.
+          </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    uploaded_img = st.file_uploader(
+        "Upload image file",
+        type=["png", "jpg", "jpeg"],
+        key="img_uploader",
+    )
+
+    if not uploaded_img:
+        return
+
+    image = Image.open(uploaded_img)
+    st.image(image, caption="Uploaded image", use_column_width=True)
+
+    if st.button("📖 Read & Translate from Image", type="primary"):
+        try:
+            # -------- OCR --------
+            with st.spinner("Running OCR on image..."):
+                extracted_text, _ = ocr_image(image, src_lang_name)
+
+            if not extracted_text or not extracted_text.strip():
+                st.error("Could not extract any readable text from this image.")
+                return
+
+            # -------- Translation --------
+            with st.spinner("Translating extracted text..."):
+                translated_text = translate_text(
+                    extracted_text, src_lang_name, tgt_lang_name
+                )
+
+            _write_result_block("Extracted text from image", extracted_text)
+            _write_result_block("Translated text", translated_text)
+
+            # -------- TTS for translated text --------
+            if translated_text and translated_text.strip():
+                # very long prescriptions: limit TTS length
+                MAX_TTS_CHARS = 3000
+                tts_text = translated_text
+
+                if len(tts_text) > MAX_TTS_CHARS:
+                    tts_text = tts_text[:MAX_TTS_CHARS]
+                    st.info(
+                        "Translated text is very long – audio is generated "
+                        "for the first part only."
+                    )
+
+                tts_path = text_to_speech_file(tts_text, tgt_lang_name)
+                if tts_path:
+                    with open(tts_path, "rb") as f:
+                        audio_bytes = f.read()
+                    st.markdown("**Translated audio:**")
+                    st.audio(audio_bytes, format="audio/mp3")
+                    cleanup_temp_file(tts_path)
+                else:
+                    st.warning(
+                        "Could not generate audio for the translated text. "
+                        "If you see a red TTS error above, that explains why."
+                    )
+
+        except Exception as e:
+            st.error(f"Error while processing image: {e}")
+
+
+# ---------- MAIN APP LAYOUT ----------
+
+def main():
+    languages = get_language_list()
+
+    # Sidebar – theme + navigation
+    with st.sidebar:
+        st.markdown("### 🎨 Theme")
+        theme_choice = st.radio(
+            "Choose theme", ["Light", "Dark"], index=0, key="theme_choice"
+        )
+
+        st.markdown("---")
+        st.markdown("### 📍 Navigation")
+        nav_choice = st.radio(
+            "Go to",
+            ["Home", "Translator", "Doctor–Patient Chat"],
+            index=0,
+            key="nav_choice",
+        )
+
+    # Apply theme styles
+    apply_theme(theme_choice)
+
+    # Route pages
+    if nav_choice == "Home":
+        show_homepage(theme_choice)
+
+    elif nav_choice == "Translator":
+        st.markdown(
+            """
+            <div class="app-card" style="margin-top:0.8rem;">
+              <div class="pill-label">Translator mode</div>
+              <div style="display:flex; align-items:center; gap:0.4rem;">
+                <span style="font-size:1.2rem;">🌍</span>
+                <div>
+                  <div class="main-title" style="margin-bottom:0;">
+                    Speech · Text · Image
+                  </div>
+                  <div class="main-subtitle">
+                    Use this mode for one-way translation of patient/doctor content.
+                  </div>
+                </div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        tabs = st.tabs(["🎤 Speech", "⌨️ Text", "🖼️ Image"])
+
+        with tabs[0]:
+            show_speech_tab(languages)
         with tabs[1]:
-            st.subheader("Text to Text + Speech Translation")
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-                st.markdown("#### Source Text")
-                src_lang_txt = st.selectbox(
-                    "Source Language",
-                    languages,
-                    index=languages.index("English") if "English" in languages else 0,
-                    key="src_lang_txt"
-                )
-                src_text = st.text_area("Enter text", height=150)
-
-            with col2:
-                st.markdown("#### Target Text")
-                tgt_lang_txt = st.selectbox(
-                    "Target Language",
-                    languages,
-                    index=languages.index("Hindi") if "Hindi" in languages else 0,
-                    key="tgt_lang_txt"
-                )
-
-            col3, col4 = st.columns([1, 1])
-
-            with col3:
-                if st.button("Translate Text", type="primary", key="btn_text"):
-                    if not src_text.strip():
-                        st.error("Please enter some text.")
-                    else:
-                        with st.spinner("Translating..."):
-                            translated_text = translate_text(src_text, src_lang_txt, tgt_lang_txt)
-                            st.markdown("##### Translated Text")
-                            st.write(translated_text)
-                            st.session_state["last_translated_text"] = translated_text
-                            st.session_state["last_tgt_lang_txt"] = tgt_lang_txt
-
-            with col4:
-                if st.button("Play as Audio", key="btn_text_tts"):
-                    if "last_translated_text" not in st.session_state:
-                        st.error("Translate some text first.")
-                    else:
-                        with st.spinner("Generating speech..."):
-                            try:
-                                tts_path = text_to_speech_file(
-                                    st.session_state["last_translated_text"],
-                                    st.session_state["last_tgt_lang_txt"]
-                                )
-                                if tts_path:
-                                    with open(tts_path, "rb") as f:
-                                        audio_bytes = f.read()
-                                    st.audio(audio_bytes, format="audio/mp3")
-                                else:
-                                    st.warning("Cannot generate audio for empty text.")
-                            except Exception as e:
-                                st.error(f"TTS error: {e}")
-                            finally:
-                                if 'tts_path' in locals() and tts_path:
-                                    cleanup_temp_file(tts_path)
-
-    # ----------------- IMAGE TAB -----------------
-
+            show_text_tab(languages)
         with tabs[2]:
-            st.subheader("Image (Prescription/Report) to Text Translation")
+            show_image_tab(languages)
 
-            col1, col2 = st.columns(2)
-
-            with col1:
-                st.markdown("#### Source Image")
-                src_lang_img = st.selectbox(
-                    "Language in Image",
-                    languages,
-                    index=languages.index("English") if "English" in languages else 0,
-                    key="src_lang_img"
-                )
-                img_file = st.file_uploader("Upload image (jpg, png)", type=["jpg", "jpeg", "png"])
-
-            with col2:
-                st.markdown("#### Target Language")
-                tgt_lang_img = st.selectbox(
-                    "Translate To",
-                    languages,
-                    index=languages.index("Hindi") if "Hindi" in languages else 0,
-                    key="tgt_lang_img"
-                )
-
-            if st.button("Extract & Translate Image", type="primary", key="btn_image"):
-                if not img_file:
-                    st.error("Please upload an image.")
-                else:
-                    with st.spinner("Running OCR and translation..."):
-                        try:
-                            image = Image.open(img_file).convert("RGB")
-                            extracted_text, raw = ocr_image(image, src_lang_img)
-
-                            st.markdown("##### Extracted Text from Image")
-                            if extracted_text.strip():
-                                st.write(extracted_text)
-
-                                st.markdown("##### Translated Text")
-                                translated_text = translate_text(extracted_text, src_lang_img, tgt_lang_img)
-                                st.write(translated_text)
-
-                                st.session_state["img_translated_text"] = translated_text
-                                st.session_state["img_tgt_lang"] = tgt_lang_img
-                            else:
-                                st.warning("No readable text found in the image.")
-
-                        except Exception as e:
-                            st.error(f"OCR/translation error: {e}")
-
-            if st.button("Play Translated Image Text", key="btn_image_tts"):
-                if "img_translated_text" not in st.session_state:
-                    st.error("Run image translation first.")
-                else:
-                    with st.spinner("Generating audio..."):
-                        try:
-                            tts_path = text_to_speech_file(
-                                st.session_state["img_translated_text"],
-                                st.session_state["img_tgt_lang"]
-                            )
-                            if tts_path:
-                                with open(tts_path, "rb") as f:
-                                    audio_bytes = f.read()
-                                st.audio(audio_bytes, format="audio/mp3")
-                            else:
-                                st.warning("Cannot generate audio for empty text.")
-                        except Exception as e:
-                            st.error(f"TTS error: {e}")
-                        finally:
-                            if 'tts_path' in locals() and tts_path:
-                                cleanup_temp_file(tts_path)
+    else:  # Doctor–Patient Chat
+        show_conversation(theme_choice, languages)
 
 
-# ============== DOCTOR–PATIENT CHAT PAGE =========
-
-if page == "Doctor–Patient Chat":
-    show_conversation(st.session_state.theme, languages)
+if __name__ == "__main__":
+    main()

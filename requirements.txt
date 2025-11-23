@@ -1,9 +1,13 @@
 streamlit
+openai-whisper      # only if you still use whisper anywhere – otherwise remove
+torch               # only if whisper needs it
 deep-translator
 gTTS
 easyocr
 opencv-python-headless
 Pillow
 numpy
-SpeechRecognition
+pydub
+streamlit-audiorec
 audio-recorder-streamlit
+SpeechRecognition
