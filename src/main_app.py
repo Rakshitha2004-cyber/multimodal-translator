@@ -1,23 +1,58 @@
 # main_app.py – Final premium version
 
-from __future__ import annotations
-
-import tempfile
-
-import streamlit as st
+from pathlib import Path
 from PIL import Image
+import streamlit as st
 
 from utils import get_language_list
 from themes import apply_theme
 from homepage import show_homepage
 from mic_ui import medical_mic
 from conversation import show_conversation
-
 from stt import speech_to_text
 from translate import translate_text
 from tts import text_to_speech_file, cleanup_temp_file
 from ocr import ocr_image
+from languages import has_sr_support
+import tempfile
 
+# ---------- PATHS / LOGO ----------
+# Find project root (folder that contains src/ and logo-png/)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+LOGO_PATH = PROJECT_ROOT / "logo-png" / "LOGO(2).png"
+
+# ---------- PAGE CONFIG ----------
+st.set_page_config(
+    page_title="Multimodal AI Medical Translator",
+    page_icon=str(r"C:\Users\Rakshitha S\OneDrive\Desktop\multimodal_translator\src\assets\LOGO (2).png"),   # uses your logo as tab icon
+    layout="wide",
+)
+
+# Load logo image once
+logo = Image.open(r"C:\Users\Rakshitha S\OneDrive\Desktop\multimodal_translator\src\assets\LOGO (2).png")
+
+# ---------- APP HEADER ----------
+header_col_logo, header_col_text = st.columns([1, 5])
+
+with header_col_logo:
+    st.image(logo, width=80)
+
+with header_col_text:
+    st.markdown(
+        """
+        <div style="display:flex; flex-direction:column; justify-content:center;">
+          <div style="font-size:1.6rem; font-weight:700; margin-bottom:0.2rem;">
+            Multimodal AI Medical Translator
+          </div>
+          <div style="font-size:0.95rem; color:#888;">
+            Premium speech · text · image translator for doctors and patients
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+st.markdown("---")
 
 # ---------- PAGE CONFIG ----------
 st.set_page_config(

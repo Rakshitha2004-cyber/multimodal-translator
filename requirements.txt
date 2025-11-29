@@ -11,3 +11,4 @@ pydub
 streamlit-audiorec
 audio-recorder-streamlit
 SpeechRecognition
+fpdf

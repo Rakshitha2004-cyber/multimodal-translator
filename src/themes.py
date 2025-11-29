@@ -1,127 +1,97 @@
-# themes.py
+# themes.py – light/dark premium theme for the whole app
 
 import streamlit as st
 
 
-def _inject_base_css():
-    """Shared CSS for cards, buttons, tags etc."""
-    if st.session_state.get("base_css_loaded"):
-        return
+def apply_theme(mode: str = "Light") -> None:
+    """
+    Inject global CSS for light/dark premium theme.
+    `mode` is "Light" or "Dark".
+    """
+    is_dark = (mode.lower() == "dark")
+
+    bg = "#020617" if is_dark else "#f3f4f6"
+    card_bg = "rgba(15,23,42,0.92)" if is_dark else "rgba(255,255,255,0.96)"
+    card_border = "rgba(148,163,184,0.65)" if is_dark else "rgba(148,163,184,0.55)"
+    text_main = "#e5e7eb" if is_dark else "#0f172a"
+    text_secondary = "#9ca3af" if is_dark else "#6b7280"
 
     st.markdown(
-        """
+        f"""
         <style>
-        /* Global background + layout tweaks */
-        .stApp {
-            background: radial-gradient(circle at top left, #eff6ff 0, #f9fafb 35%, #ffffff 100%);
-        }
+        /* Global background */
+        .stApp {{
+            background: radial-gradient(circle at top, #38bdf8 0, transparent 50%),
+                        radial-gradient(circle at bottom, #22c55e 0, transparent 55%),
+                        {bg};
+            color: {text_main};
+        }}
 
-        /* Top title spacing */
-        .main-title {
-            font-size: 2rem;
-            font-weight: 800;
-            letter-spacing: 0.03em;
-            margin-bottom: 0.2rem;
-        }
-        .main-subtitle {
-            font-size: 0.95rem;
-            color: #6b7280;
-            margin-bottom: 1.5rem;
-        }
+        /* Main content width tweak */
+        .block-container {{
+            max-width: 1100px;
+        }}
 
-        /* Generic card */
-        .app-card {
-            border-radius: 20px;
-            padding: 1.1rem 1.3rem;
-            margin-bottom: 1rem;
-            background: rgba(255,255,255,0.9);
-            border: 1px solid rgba(148,163,184,0.55);
-            box-shadow: 0 18px 36px rgba(15,23,42,0.08);
+        /* Cards used across the app */
+        .app-card {{
+            background: {card_bg};
+            border-radius: 18px;
+            border: 1px solid {card_border};
+            padding: 1rem 1.2rem;
+            box-shadow: 0 10px 30px rgba(15,23,42,0.35);
             backdrop-filter: blur(12px);
-        }
+            margin-bottom: 0.6rem;
+        }}
 
-        .app-card h4 {
-            margin-top: 0;
-            margin-bottom: 0.4rem;
-            font-size: 1.05rem;
-            font-weight: 600;
-            color: #0f172a;
-        }
+        .pill-label {{
+            display:inline-block;
+            padding:0.2rem 0.65rem;
+            border-radius:999px;
+            font-size:0.75rem;
+            letter-spacing:0.08em;
+            text-transform:uppercase;
+            background: linear-gradient(90deg,#0ea5e9,#22c55e);
+            color:white;
+            margin-bottom:0.35rem;
+        }}
 
-        .tag-chip {
-            display: inline-flex;
-            align-items: center;
-            padding: 0.18rem 0.6rem;
-            border-radius: 999px;
-            font-size: 0.75rem;
-            background: rgba(59,130,246,0.1);
-            color: #1d4ed8;
-            margin-right: 0.3rem;
-        }
+        .main-title {{
+            font-size:1.35rem;
+            font-weight:700;
+            letter-spacing:0.03em;
+        }}
 
-        .pill-label {
-            display: inline-flex;
-            align-items: center;
-            padding: 0.16rem 0.5rem;
-            border-radius: 999px;
-            font-size: 0.78rem;
-            background: rgba(15,23,42,0.04);
-            color: #374151;
-            margin-bottom: 0.4rem;
-        }
+        .main-subtitle {{
+            font-size:0.85rem;
+            color:{text_secondary};
+        }}
 
-        .primary-button > button {
-            border-radius: 999px !important;
-            font-weight: 600 !important;
-            padding: 0.45rem 1.5rem !important;
-            box-shadow: 0 10px 20px rgba(220,38,38,0.35) !important;
-        }
+        .secondary-text {{
+            font-size:0.82rem;
+            color:{text_secondary};
+        }}
 
-        .secondary-text {
-            font-size: 0.8rem;
-            color: #6b7280;
-        }
+        /* Buttons */
+        .stButton>button {{
+            border-radius:999px;
+            padding:0.4rem 0.9rem;
+            border:1px solid rgba(148,163,184,0.6);
+            font-size:0.9rem;
+        }}
+
+        .stButton>button[kind="primary"] {{
+            background:linear-gradient(90deg,#0ea5e9,#22c55e);
+            color:white;
+            border:none;
+        }}
+
+        /* Tabs */
+        .stTabs [data-baseweb="tab"] {{
+            font-size:0.9rem;
+            padding-top:0.4rem;
+            padding-bottom:0.4rem;
+        }}
         </style>
         """,
         unsafe_allow_html=True,
     )
-    st.session_state["base_css_loaded"] = True
-
-
-def apply_theme(theme: str):
-    """
-    Apply light / dark feel using simple CSS.
-    IMPORTANT: Do NOT call st.set_page_config here (only from main_app)
-    """
-    _inject_base_css()
-
-    if theme.lower() == "dark":
-        st.markdown(
-            """
-            <style>
-            .stApp {
-                background: radial-gradient(circle at top left, #0f172a 0, #020617 40%, #020617 100%);
-                color: #e5e7eb;
-            }
-            .app-card {
-                background: rgba(15,23,42,0.9);
-                border-color: rgba(148,163,184,0.55);
-                box-shadow: 0 18px 40px rgba(0,0,0,0.7);
-            }
-            .app-card h4 { color: #e5e7eb; }
-            .main-title { color: #e5e7eb; }
-            .main-subtitle { color: #9ca3af; }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-    else:
-        # Light mode tweaks (already mostly handled by base CSS)
-        st.markdown(
-            """
-            <style>
-            .main-title { color: #0f172a; }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
