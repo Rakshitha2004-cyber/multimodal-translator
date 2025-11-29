@@ -462,6 +462,9 @@ def main():
 
     else:  # Doctor–Patient Chat
         show_conversation(theme_choice, languages)
+        mic_audio_patient = medical_mic("Patient Microphone", key="conv_patient")
+        mic_audio_doctor = medical_mic("Doctor Microphone", key="conv_doctor")
+
 
 
 if __name__ == "__main__":

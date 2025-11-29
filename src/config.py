@@ -1,80 +1,164 @@
 # config.py
-# config.py
 
 from deep_translator import GoogleTranslator
 
 
 def build_supported_languages():
     """
+    (Optional utility)
     Ask deep_translator (Google Translate) for ALL supported languages
     and convert them into our internal format.
-
-    Result example:
-    {
-        "English": {"code": "en"},
-        "Hindi":   {"code": "hi"},
-        ...
-    }
+    Not used right now, but you can keep it for experiments.
     """
-    # returns dict like {"english": "en", "hindi": "hi", ...}
     langs = GoogleTranslator().get_supported_languages(as_dict=True)
-
     supported = {}
     for name_lower, code in langs.items():
-        # Title-case the name for display, e.g. "english" -> "English"
         display_name = name_lower.title()
         supported[display_name] = {"code": code}
-
     return supported
 
 
-# This now contains 100+ languages supported by Google Translate
-# config.py
+# NOTE: GOOGLE_TRANSLATE_API_KEY is no longer used. You can delete this line
+# or leave it, but it is not needed anymore.
+# GOOGLE_TRANSLATE_API_KEY = "...."   # <--- remove or comment this out
+
 
 # Master list of supported languages for the UI and translation.
 # Key = label shown to user, Value = ISO code used for translation.
 SUPPORTED_LANGUAGES = {
-    # India / local
-    "English": "en",
-    "Hindi": "hi",
-    "Kannada": "kn",
-    "Tamil": "ta",
-    "Telugu": "te",
-    "Malayalam": "ml",
-    "Marathi": "mr",
-    "Gujarati": "gu",
-    "Punjabi": "pa",
-    "Bengali": "bn",
-    "Urdu": "ur",
-
-    # Popular world languages
+    "Afrikaans": "af",
+    "Albanian": "sq",
+    "Amharic": "am",
     "Arabic": "ar",
+    "Armenian": "hy",
+    "Assamese": "as",
+    "Aymara": "ay",
+    "Azerbaijani": "az",
+    "Bambara": "bm",
+    "Basque": "eu",
+    "Belarusian": "be",
+    "Bengali": "bn",
+    "Bhojpuri": "bho",
+    "Bosnian": "bs",
+    "Bulgarian": "bg",
+    "Catalan": "ca",
+    "Cebuano": "ceb",
     "Chinese (Simplified)": "zh-cn",
     "Chinese (Traditional)": "zh-tw",
+    "Corsican": "co",
+    "Croatian": "hr",
+    "Czech": "cs",
+    "Danish": "da",
+    "Dhivehi": "dv",
+    "Dogri": "doi",
+    "Dutch": "nl",
+    "English": "en",
+    "Esperanto": "eo",
+    "Estonian": "et",
+    "Ewe": "ee",
+    "Filipino": "fil",
+    "Finnish": "fi",
     "French": "fr",
+    "Frisian": "fy",
+    "Galician": "gl",
+    "Georgian": "ka",
     "German": "de",
-    "Spanish": "es",
-    "Portuguese": "pt",
-    "Russian": "ru",
+    "Greek": "el",
+    "Guarani": "gn",
+    "Gujarati": "gu",
+    "Haitian Creole": "ht",
+    "Hausa": "ha",
+    "Hawaiian": "haw",
+    "Hebrew": "he",
+    "Hindi": "hi",
+    "Hmong": "hmn",
+    "Hungarian": "hu",
+    "Icelandic": "is",
+    "Igbo": "ig",
+    "Ilocano": "ilo",
+    "Indonesian": "id",
+    "Irish": "ga",
     "Italian": "it",
     "Japanese": "ja",
+    "Javanese": "jv",
+    "Kannada": "kn",
+    "Kazakh": "kk",
+    "Khmer": "km",
+    "Kinyarwanda": "rw",
+    "Konkani": "gom",
     "Korean": "ko",
-    "Thai": "th",
-    "Indonesian": "id",
-    "Turkish": "tr",
-    "Dutch": "nl",
-    "Swedish": "sv",
-    "Polish": "pl",
-    "Czech": "cs",
-    "Greek": "el",
-    "Vietnamese": "vi",
-    "Swahili": "sw",
-    "Filipino": "tl",
-    "Romanian": "ro",
-    "Hungarian": "hu",
-    "Finnish": "fi",
-    "Danish": "da",
+    "Krio": "kri",
+    "Kurdish (Kurmanji)": "ku",
+    "Kurdish (Sorani)": "ckb",
+    "Kyrgyz": "ky",
+    "Lao": "lo",
+    "Latin": "la",
+    "Latvian": "lv",
+    "Lingala": "ln",
+    "Lithuanian": "lt",
+    "Luganda": "lg",
+    "Luxembourgish": "lb",
+    "Macedonian": "mk",
+    "Maithili": "mai",
+    "Malagasy": "mg",
+    "Malay": "ms",
+    "Malayalam": "ml",
+    "Maltese": "mt",
+    "Maori": "mi",
+    "Marathi": "mr",
+    "Meitei (Manipuri)": "mni-mtei",
+    "Mizo": "lus",
+    "Mongolian": "mn",
+    "Myanmar (Burmese)": "my",
+    "Nepali": "ne",
     "Norwegian": "no",
-    "Hebrew": "he",
+    "Nyanja (Chichewa)": "ny",
+    "Odia (Oriya)": "or",
+    "Oromo": "om",
+    "Pashto": "ps",
     "Persian (Farsi)": "fa",
+    "Polish": "pl",
+    "Portuguese": "pt",
+    "Punjabi": "pa",
+    "Quechua": "qu",
+    "Romanian": "ro",
+    "Russian": "ru",
+    "Samoan": "sm",
+    "Sanskrit": "sa",
+    "Santali": "sat",
+    "Scots Gaelic": "gd",
+    "Serbian": "sr",
+    "Shona": "sn",
+    "Sindhi": "sd",
+    "Sinhala": "si",
+    "Slovak": "sk",
+    "Slovenian": "sl",
+    "Somali": "so",
+    "Spanish": "es",
+    "Sundanese": "su",
+    "Swahili": "sw",
+    "Swedish": "sv",
+    "Tagalog": "tl",
+    "Tajik": "tg",
+    "Tamil": "ta",
+    "Tatar": "tt",
+    "Telugu": "te",
+    "Thai": "th",
+    "Tigrinya": "ti",
+    "Tsonga": "ts",
+    "Turkish": "tr",
+    "Turkmen": "tk",
+    "Twi (Akan)": "ak",
+    "Ukrainian": "uk",
+    "Urdu": "ur",
+    "Uyghur": "ug",
+    "Uzbek": "uz",
+    "Vietnamese": "vi",
+    "Welsh": "cy",
+    "Xhosa": "xh",
+    "Yiddish": "yi",
+    "Yoruba": "yo",
+    "Zulu": "zu",
 }
+
+
