@@ -28,8 +28,15 @@ st.set_page_config(
     layout="wide",
 )
 
-# Load logo image once
-logo = Image.open(r"C:\Users\Rakshitha S\OneDrive\Desktop\multimodal_translator\src\assets\LOGO (2).png")
+ 
+BASE_DIR = Path(__file__).resolve().parent
+logo_path = BASE_DIR / "assets" / "logo.png"
+
+print("LOGO PATH:", logo_path)
+print("EXISTS?:", logo_path.exists())
+
+logo = Image.open(logo_path)
+st.image(logo, width=150)
 
 # ---------- APP HEADER ----------
 header_col_logo, header_col_text = st.columns([1, 5])
