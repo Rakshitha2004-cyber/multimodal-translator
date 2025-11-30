@@ -1,50 +1,100 @@
-# ocr.py
+# ---------------------------------------------------------
+# ocr.py — Hybrid OCR (TrOCR + Tesseract)
+# ---------------------------------------------------------
 
-# ocr.py
+from __future__ import annotations   # MUST be at very top
 
-import easyocr
 import numpy as np
-from PIL import Image, ImageOps, ImageFilter
-from typing import Tuple, List
-from languages import code_for_easyocr  # you already had this
-from functools import lru_cache
+import cv2
+from PIL import Image
+import pytesseract
+
+import torch
+from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+
+# -------------------------------
+# Load TrOCR Model (English only)
+# -------------------------------
+try:
+    processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-handwritten")
+    trocr_model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-handwritten")
+    trocr_available = True
+except Exception as e:
+    print("TrOCR loading failed:", e)
+    trocr_available = False
 
 
-@lru_cache(maxsize=32)
-def get_reader(lang_name: str) -> easyocr.Reader:
+# ---------------------------------------------------------
+# Helper: preprocess for Tesseract
+# ---------------------------------------------------------
+def preprocess_for_tesseract(pil_img: Image.Image):
+    """Convert to grayscale + threshold + denoise."""
+    img = np.array(pil_img.convert("L"))
+
+    # Light denoising
+    img = cv2.fastNlMeansDenoising(img, None, 25)
+
+    # Adaptive threshold
+    th = cv2.adaptiveThreshold(
+        img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY, 31, 10
+    )
+    return th
+
+
+# ---------------------------------------------------------
+# MAIN HYBRID OCR FUNCTION
+# ---------------------------------------------------------
+def ocr_image(pil_img: Image.Image, lang_name: str):
     """
-    Cache EasyOCR reader per language to avoid reloading models.
+    Returns: (extracted_text, processed_image_preview)
+    processed_image_preview is a numpy array ready for st.image()
     """
-    lang_code = code_for_easyocr(lang_name)  # e.g. "en", "hi", "ta"
-    # cpu=True avoids GPU requirement
-    return easyocr.Reader([lang_code], gpu=False)
 
+    # Convert PIL -> RGB
+    img = pil_img.convert("RGB")
 
-def _preprocess_image(image: Image.Image) -> Image.Image:
-    """
-    Light preprocessing to help both printed and handwritten text:
-    - convert to grayscale
-    - increase contrast
-    - slight sharpen
-    """
-    img = image.convert("L")  # grayscale
-    img = ImageOps.autocontrast(img)
-    img = img.filter(ImageFilter.SHARPEN)
-    return img
+    # ---------------------------------------
+    # 1. ***TESSERACT supports 100+ languages***
+    # ---------------------------------------
+    lang_map = {
+        "English": "eng",
+        "Hindi": "hin",
+        "Kannada": "kan",
+        "Tamil": "tam",
+        "Telugu": "tel",
+        "Malayalam": "mal",
+        "Marathi": "mar",
+        "Gujarati": "guj",
+        "Urdu": "urd",
+    }
 
+    tess_lang = lang_map.get(lang_name, "eng")
 
-def ocr_image(image: Image.Image, language_name: str) -> Tuple[str, List]:
-    """
-    Run OCR on a PIL image and return (joined_text, raw_results).
-    """
-    pre = _preprocess_image(image)
-    np_img = np.array(pre)
+    processed = preprocess_for_tesseract(img)
 
-    reader = get_reader(language_name)
-    # detail=1 returns bounding boxes + text; good for debugging if needed
-    results = reader.readtext(np_img, detail=1)
+    try:
+        tess_text = pytesseract.image_to_string(processed, lang=tess_lang)
+    except Exception as e:
+        print("Tesseract OCR failed:", e)
+        tess_text = ""
 
-    lines = [text for (_, text, conf) in results if text.strip()]
-    joined = "\n".join(lines).strip()
+    # ---------------------------------------
+    # 2. ***TrOCR for English handwritten***
+    # ---------------------------------------
+    trocr_text = ""
+    if lang_name == "English" and trocr_available:
+        try:
+            pixel_values = processor(images=img, return_tensors="pt").pixel_values
+            generated = trocr_model.generate(pixel_values)
+            trocr_text = processor.batch_decode(generated, skip_special_tokens=True)[0]
+        except Exception as e:
+            print("TrOCR error:", e)
+            trocr_text = ""
 
-    return joined, results
+    # ---------------------------------------
+    # 3. Combine both (TrOCR strongest)
+    # ---------------------------------------
+    combined = (trocr_text + "\n" + tess_text).strip()
+
+    return combined, processed

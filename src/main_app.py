@@ -1,6 +1,8 @@
-# main_app.py – Final premium version
+# main_app.py – Premium Multimodal Medical Translator
 
 from pathlib import Path
+import tempfile
+
 from PIL import Image
 import streamlit as st
 
@@ -13,32 +15,31 @@ from stt import speech_to_text
 from translate import translate_text
 from tts import text_to_speech_file, cleanup_temp_file
 from ocr import ocr_image
-from languages import has_sr_support
-import tempfile
+from languages import has_sr_support  # (if used elsewhere)
 
-# ---------- PATHS / LOGO ----------
-# Find project root (folder that contains src/ and logo-png/)
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-LOGO_PATH = PROJECT_ROOT / "logo-png" / "LOGO(2).png"
 
-# ---------- PAGE CONFIG ----------
+# =========================================================
+# PATHS / LOGO + PAGE CONFIG
+# =========================================================
+
+BASE_DIR = Path(__file__).resolve().parent          # .../src
+LOGO_PATH = BASE_DIR / "assets" / "logo.png"        # src/assets/logo.png
+
 st.set_page_config(
     page_title="Multimodal AI Medical Translator",
-    page_icon=str(r"C:\Users\Rakshitha S\OneDrive\Desktop\multimodal_translator\src\assets\LOGO (2).png"),   # uses your logo as tab icon
+    page_icon=str(LOGO_PATH),
     layout="wide",
 )
 
- 
-BASE_DIR = Path(__file__).resolve().parent
-logo_path = BASE_DIR / "assets" / "logo.png"
+print("LOGO PATH:", LOGO_PATH)
+print("EXISTS?:", LOGO_PATH.exists())
+logo = Image.open(LOGO_PATH)
 
-print("LOGO PATH:", logo_path)
-print("EXISTS?:", logo_path.exists())
 
-logo = Image.open(logo_path)
-st.image(logo, width=150)
+# =========================================================
+# APP HEADER
+# =========================================================
 
-# ---------- APP HEADER ----------
 header_col_logo, header_col_text = st.columns([1, 5])
 
 with header_col_logo:
@@ -61,15 +62,10 @@ with header_col_text:
 
 st.markdown("---")
 
-# ---------- PAGE CONFIG ----------
-st.set_page_config(
-    page_title="Multimodal AI Medical Translator",
-    page_icon="🩺",
-    layout="wide",
-)
 
-
-# ---------- UI HELPERS ----------
+# =========================================================
+# UI HELPERS
+# =========================================================
 
 def _section_header(title: str, subtitle: str | None = None, icon: str = ""):
     icon_html = (
@@ -107,12 +103,13 @@ def _write_result_block(title: str, text: str):
     )
 
 
-# ---------- TRANSLATOR – SPEECH TAB ----------
+# =========================================================
+# TRANSLATOR – SPEECH TAB
+# =========================================================
 
 def show_speech_tab(languages: list[str]):
     col_src, col_tgt = st.columns(2)
 
-    # sensible defaults
     default_src = languages.index("English") if "English" in languages else 0
     default_tgt = (
         languages.index("Hindi")
@@ -182,9 +179,7 @@ def show_speech_tab(languages: list[str]):
     st.markdown("")
 
     # Translate button
-    btn_col = st.container()
-    with btn_col:
-        translate_clicked = st.button("🔁 Translate Speech", type="primary")
+    translate_clicked = st.button("🔁 Translate Speech", type="primary")
 
     if not translate_clicked:
         return
@@ -250,7 +245,9 @@ def show_speech_tab(languages: list[str]):
         cleanup_temp_file(audio_path)
 
 
-# ---------- TRANSLATOR – TEXT TAB ----------
+# =========================================================
+# TRANSLATOR – TEXT TAB
+# =========================================================
 
 def show_text_tab(languages: list[str]):
     col_src, col_tgt = st.columns(2)
@@ -336,7 +333,9 @@ def show_text_tab(languages: list[str]):
         st.error(f"Error while translating text: {e}")
 
 
-# ---------- TRANSLATOR – IMAGE TAB (FINAL) ----------
+# =========================================================
+# TRANSLATOR – IMAGE TAB (Hybrid OCR + Editable Text)
+# =========================================================
 
 def show_image_tab(languages: list[str]):
     col_src, col_tgt = st.columns(2)
@@ -375,8 +374,8 @@ def show_image_tab(languages: list[str]):
         <div class="app-card">
           <h4>Upload image</h4>
           <p class="secondary-text">
-            Clear photos of prescriptions or notes work best. Handwritten text is
-            supported, but accuracy depends on legibility.
+            Clear printed prescriptions and neat handwriting are recognized best.
+            For very cursive doctor handwriting, you can correct the text before translation.
           </p>
         </div>
         """,
@@ -392,40 +391,64 @@ def show_image_tab(languages: list[str]):
     if not uploaded_img:
         return
 
-    image = Image.open(uploaded_img)
+    # Show original image
+    image = Image.open(uploaded_img).convert("RGB")
     st.image(image, caption="Uploaded image", use_column_width=True)
 
-    if st.button("📖 Read & Translate from Image", type="primary"):
+    # --- STEP 1: OCR BUTTON ---
+    if st.button("📖 Extract Text from Image", type="primary", key="extract_img"):
         try:
-            # -------- OCR --------
-            with st.spinner("Running OCR on image..."):
-                extracted_text, _ = ocr_image(image, src_lang_name)
+            with st.spinner("Running OCR (printed + handwritten)..."):
+                extracted_text, processed = ocr_image(image, src_lang_name)
 
-            if not extracted_text or not extracted_text.strip():
-                st.error("Could not extract any readable text from this image.")
-                return
+            extracted_text = (extracted_text or "").strip()
 
-            # -------- Translation --------
-            with st.spinner("Translating extracted text..."):
-                translated_text = translate_text(
-                    extracted_text, src_lang_name, tgt_lang_name
+            # Save in session_state so it persists for the next rerun
+            st.session_state["ocr_extracted_text"] = extracted_text
+
+            if processed is not None:
+                st.markdown("**Image used by OCR (after preprocessing):**")
+                st.image(processed, use_column_width=True)
+
+            if not extracted_text:
+                st.warning(
+                    "OCR could not confidently read this image. "
+                    "If it's very messy handwriting, you may need to type the text."
                 )
 
-            _write_result_block("Extracted text from image", extracted_text)
+        except Exception as e:
+            st.error(f"Error while running OCR: {e}")
+
+    # --- EDITABLE TEXT (always visible once OCR has run) ---
+    current_ocr_text = st.session_state.get("ocr_extracted_text", "")
+
+    editable_text = st.text_area(
+        "Extracted text (you can edit or type manually):",
+        value=current_ocr_text,
+        height=180,
+        key="ocr_edit_box",
+    )
+
+    # --- STEP 2: TRANSLATE BUTTON ---
+    if st.button("🔁 Translate Above Text", type="primary", key="translate_img"):
+        final_text = (editable_text or "").strip()
+        if not final_text:
+            st.error("Please enter or correct the text before translation.")
+            return
+
+        try:
+            with st.spinner("Translating text..."):
+                translated_text = translate_text(
+                    final_text, src_lang_name, tgt_lang_name
+                )
+
+            _write_result_block("Final text to translate", final_text)
             _write_result_block("Translated text", translated_text)
 
-            # -------- TTS for translated text --------
+            # TTS
             if translated_text and translated_text.strip():
-                # very long prescriptions: limit TTS length
                 MAX_TTS_CHARS = 3000
-                tts_text = translated_text
-
-                if len(tts_text) > MAX_TTS_CHARS:
-                    tts_text = tts_text[:MAX_TTS_CHARS]
-                    st.info(
-                        "Translated text is very long – audio is generated "
-                        "for the first part only."
-                    )
+                tts_text = translated_text[:MAX_TTS_CHARS]
 
                 tts_path = text_to_speech_file(tts_text, tgt_lang_name)
                 if tts_path:
@@ -436,15 +459,15 @@ def show_image_tab(languages: list[str]):
                     cleanup_temp_file(tts_path)
                 else:
                     st.warning(
-                        "Could not generate audio for the translated text. "
-                        "If you see a red TTS error above, that explains why."
+                        "Could not generate audio for the translated text."
                     )
-
         except Exception as e:
-            st.error(f"Error while processing image: {e}")
+            st.error(f"Error while translating OCR text: {e}")
 
 
-# ---------- MAIN APP LAYOUT ----------
+# =========================================================
+# MAIN APP LAYOUT
+# =========================================================
 
 def main():
     languages = get_language_list()
@@ -504,9 +527,9 @@ def main():
 
     else:  # Doctor–Patient Chat
         show_conversation(theme_choice, languages)
+        # These mics can be wired into your conversation logic as needed
         mic_audio_patient = medical_mic("Patient Microphone", key="conv_patient")
         mic_audio_doctor = medical_mic("Doctor Microphone", key="conv_doctor")
-
 
 
 if __name__ == "__main__":
