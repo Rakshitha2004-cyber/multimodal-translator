@@ -1,100 +1,90 @@
-# ---------------------------------------------------------
-# ocr.py — Hybrid OCR (TrOCR + Tesseract)
-# ---------------------------------------------------------
+# src/ocr.py  –  Tesseract-based OCR for printed + neat handwriting
 
-from __future__ import annotations   # MUST be at very top
+from __future__ import annotations
+
+from typing import Tuple
 
 import numpy as np
 import cv2
 from PIL import Image
 import pytesseract
 
-import torch
-from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 
-# -------------------------------
-# Load TrOCR Model (English only)
-# -------------------------------
-try:
-    processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-handwritten")
-    trocr_model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-handwritten")
-    trocr_available = True
-except Exception as e:
-    print("TrOCR loading failed:", e)
-    trocr_available = False
+# Map UI language names to Tesseract language codes
+LANG_MAP = {
+    "English": "eng",
+    "Hindi": "hin",
+    "Kannada": "kan",
+    "Tamil": "tam",
+    "Telugu": "tel",
+    "Malayalam": "mal",
+    "Marathi": "mar",
+    "Gujarati": "guj",
+    "Bengali": "ben",
+    "Punjabi": "pan",
+    "Urdu": "urd",
+    # add more here if needed
+}
 
 
-# ---------------------------------------------------------
-# Helper: preprocess for Tesseract
-# ---------------------------------------------------------
-def preprocess_for_tesseract(pil_img: Image.Image):
-    """Convert to grayscale + threshold + denoise."""
-    img = np.array(pil_img.convert("L"))
+def _preprocess_for_tesseract(pil_img: Image.Image) -> np.ndarray:
+    """
+    Basic preprocessing for Tesseract:
+    - convert to grayscale
+    - resize up
+    - denoise
+    - adaptive threshold
+    Returns a NumPy array that can be shown with st.image().
+    """
+    img = np.array(pil_img.convert("RGB"))
 
-    # Light denoising
-    img = cv2.fastNlMeansDenoising(img, None, 25)
+    # grayscale
+    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
-    # Adaptive threshold
-    th = cv2.adaptiveThreshold(
-        img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY, 31, 10
+    # upscale slightly to help OCR
+    gray = cv2.resize(gray, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_LINEAR)
+
+    # denoise
+    gray = cv2.fastNlMeansDenoising(gray, None, 25, 7, 21)
+
+    # adaptive thresholding
+    thr = cv2.adaptiveThreshold(
+        gray,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        31,
+        10,
     )
-    return th
+
+    return thr
 
 
-# ---------------------------------------------------------
-# MAIN HYBRID OCR FUNCTION
-# ---------------------------------------------------------
-def ocr_image(pil_img: Image.Image, lang_name: str):
+def ocr_image(pil_img: Image.Image, lang_name: str) -> Tuple[str, np.ndarray]:
     """
-    Returns: (extracted_text, processed_image_preview)
-    processed_image_preview is a numpy array ready for st.image()
+    Main OCR function used by main_app.show_image_tab.
+
+    Args:
+        pil_img: PIL Image uploaded by user
+        lang_name: language name selected in dropdown (e.g. "English")
+
+    Returns:
+        text: extracted text (string)
+        processed: processed image (NumPy array) for display
     """
+    processed = _preprocess_for_tesseract(pil_img)
 
-    # Convert PIL -> RGB
-    img = pil_img.convert("RGB")
+    tess_lang = LANG_MAP.get(lang_name, "eng")
 
-    # ---------------------------------------
-    # 1. ***TESSERACT supports 100+ languages***
-    # ---------------------------------------
-    lang_map = {
-        "English": "eng",
-        "Hindi": "hin",
-        "Kannada": "kan",
-        "Tamil": "tam",
-        "Telugu": "tel",
-        "Malayalam": "mal",
-        "Marathi": "mar",
-        "Gujarati": "guj",
-        "Urdu": "urd",
-    }
-
-    tess_lang = lang_map.get(lang_name, "eng")
-
-    processed = preprocess_for_tesseract(img)
+    # psm 6 = assume a block of text
+    config = "--oem 3 --psm 6"
 
     try:
-        tess_text = pytesseract.image_to_string(processed, lang=tess_lang)
+        text = pytesseract.image_to_string(
+            processed, lang=tess_lang, config=config
+        )
     except Exception as e:
-        print("Tesseract OCR failed:", e)
-        tess_text = ""
+        print("Tesseract OCR error:", e)
+        text = ""
 
-    # ---------------------------------------
-    # 2. ***TrOCR for English handwritten***
-    # ---------------------------------------
-    trocr_text = ""
-    if lang_name == "English" and trocr_available:
-        try:
-            pixel_values = processor(images=img, return_tensors="pt").pixel_values
-            generated = trocr_model.generate(pixel_values)
-            trocr_text = processor.batch_decode(generated, skip_special_tokens=True)[0]
-        except Exception as e:
-            print("TrOCR error:", e)
-            trocr_text = ""
-
-    # ---------------------------------------
-    # 3. Combine both (TrOCR strongest)
-    # ---------------------------------------
-    combined = (trocr_text + "\n" + tess_text).strip()
-
-    return combined, processed
+    return text.strip(), processed
