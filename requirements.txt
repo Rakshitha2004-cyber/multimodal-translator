@@ -18,6 +18,11 @@ pytesseract
 
 # PDF / report
 fpdf
+easyocr
+numpy
+torch
+torchvision
+torchaudio
 
 
 

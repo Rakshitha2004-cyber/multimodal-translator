@@ -1,10 +1,14 @@
-# main_app.py – Multimodal AI Medical Translator (Streamlit)
+# main_app.py – Multimodal AI Medical Translator (Streamlit)# main_app.py – Multimodal AI Medical Translator (Streamlit)
 
 from pathlib import Path
 import tempfile
 
+import numpy as np
 from PIL import Image
 import streamlit as st
+
+import easyocr
+from googletrans import Translator
 
 from utils import get_language_list
 from themes import apply_theme
@@ -12,10 +16,10 @@ from homepage import show_homepage
 from mic_ui import medical_mic
 from conversation import show_conversation
 from stt import speech_to_text
-from translate import translate_text
+from translate import translate_text          # used for speech/text tabs
 from tts import text_to_speech_file, cleanup_temp_file
-from ocr import ocr_image
-from languages import has_sr_support  # in case other modules use it
+from ocr import ocr_image                     # kept in case used elsewhere
+from languages import has_sr_support
 
 
 # =========================================================
@@ -42,12 +46,59 @@ def load_logo():
     """Load logo safely; return None if it fails."""
     try:
         if LOGO_PATH.exists():
-            print("LOGO PATH:", LOGO_PATH)
-            print("EXISTS?:", LOGO_PATH.exists())
             return Image.open(LOGO_PATH)
     except Exception as e:
         print("Logo load failed:", e)
     return None
+
+
+# =========================================================
+# IMAGE TRANSLATION HELPERS (EasyOCR + googletrans)
+# =========================================================
+
+IMG_TRANSLATOR = Translator()   # used only for IMAGE translation
+
+
+@st.cache_resource(show_spinner=False)
+def get_easyocr_reader(lang_code: str = "en"):
+    """Create and cache EasyOCR reader for a language code."""
+    try:
+        return easyocr.Reader([lang_code])
+    except Exception:
+        # If a specific language is not supported, fall back to English
+        return easyocr.Reader(["en"])
+
+
+def extract_text_from_image(image_file, ocr_lang: str = "en") -> str:
+    """
+    Extract text from an uploaded image using EasyOCR.
+    """
+    try:
+        image = Image.open(image_file).convert("RGB")
+        image_np = np.array(image)
+
+        reader = get_easyocr_reader(ocr_lang)
+        result = reader.readtext(image_np, detail=0)  # detail=0 → returns only text
+
+        text = "\n".join(result).strip()
+        return text
+    except Exception as e:
+        return f"[OCR error: {e}]"
+
+
+def img_translate_text(text: str, tgt_lang_code: str) -> str:
+    """
+    Translate text for IMAGE TAB using googletrans.
+    IMPORTANT: we use src='auto' so manual text always works.
+    """
+    if not text or not text.strip():
+        return ""
+
+    try:
+        result = IMG_TRANSLATOR.translate(text, src="auto", dest=tgt_lang_code)
+        return result.text
+    except Exception as e:
+        return f"[Translation error: {e}]"
 
 
 # =========================================================
@@ -154,6 +205,16 @@ def show_speech_tab(languages: list[str]):
             key="speech_tgt_lang",
             index=default_tgt,
         )
+
+    # Show SR support info if available
+    try:
+        if not has_sr_support(src_lang_name):
+            st.warning(
+                f"Speech recognition may not fully support **{src_lang_name}**. "
+                "For best results, use English / Hindi / other supported languages."
+            )
+    except Exception:
+        pass
 
     st.markdown("---")
 
@@ -351,119 +412,143 @@ def show_text_tab(languages: list[str]):
 
 
 # =========================================================
-# TRANSLATOR – IMAGE TAB (Tesseract OCR)
+# TRANSLATOR – IMAGE TAB  (OCR + manual text + TTS, robust)
+# =========================================================
+# =========================================================
+# TRANSLATOR – IMAGE TAB  (OCR + manual text + TTS, fixed)
 # =========================================================
 
 def show_image_tab(languages: list[str]):
-    col_src, col_tgt = st.columns(2)
+    st.subheader("Image Translator (Printed + Handwritten)")
 
-    default_src = languages.index("English") if "English" in languages else 0
-    default_tgt = (
-        languages.index("Hindi")
-        if "Hindi" in languages
-        else (1 if len(languages) > 1 else 0)
-    )
-
-    with col_src:
-        _section_header(
-            "Source (Image OCR)", "Upload prescription / note image", "🧾"
-        )
-        src_lang_name = st.selectbox(
-            "Language in the image",
-            languages,
-            key="img_src_lang",
-            index=default_src,
-        )
-
-    with col_tgt:
-        _section_header("Target language", "Language for translated text/audio", "🌐")
-        tgt_lang_name = st.selectbox(
-            "Target language",
-            languages,
-            key="img_tgt_lang",
-            index=default_tgt,
-        )
-
-    st.markdown("")
-
-    st.markdown(
+    st.write(
         """
-        <div class="app-card">
-          <h4>Upload image</h4>
-          <p class="secondary-text">
-            Clear printed prescriptions and neat handwriting are recognized best.
-            For very cursive doctor handwriting, you can correct the text before translation.
-          </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
+        Upload an image containing **printed** or **handwritten** text.  
+        The app will try to read it.  
+        If OCR is not accurate, the patient/doctor can **edit or type the text manually**,  
+        then translate it and listen to the audio.
+        """
     )
 
-    uploaded_img = st.file_uploader(
-        "Upload image file",
+    # Language code mapping for googletrans (destination)
+    lang_code_map = {
+        "English": "en",
+        "Kannada": "kn",
+        "Hindi": "hi",
+        "Tamil": "ta",
+        "Telugu": "te",
+        "Malayalam": "ml",
+    }
+
+    col1, col2 = st.columns(2)
+    with col1:
+        src_lang_name = st.selectbox(
+            "Source Language (for doctor understanding / context)",
+            list(lang_code_map.keys()),
+            index=0,
+            key="img_src_lang",
+        )
+    with col2:
+        tgt_lang_name = st.selectbox(
+            "Target Language (output)",
+            list(lang_code_map.keys()),
+            index=1,
+            key="img_tgt_lang",
+        )
+
+    tgt_code = lang_code_map[tgt_lang_name]
+
+    ocr_mode = st.radio(
+        "Type of text in image",
+        options=["Printed", "Handwritten"],
+        index=0,
+        horizontal=True,
+        key="img_text_type",
+    )
+
+    uploaded_image = st.file_uploader(
+        "Upload Image",
         type=["png", "jpg", "jpeg"],
         key="img_uploader",
     )
 
-    if not uploaded_img:
-        return
+    # --- initialise session_state once ---
+    if "img_text_input" not in st.session_state:
+        st.session_state["img_text_input"] = ""
 
-    image = Image.open(uploaded_img).convert("RGB")
-    st.image(image, caption="Uploaded image", use_column_width=True)
+    # --- If image uploaded and OCR button clicked, update session_state BEFORE text_area ---
+    if uploaded_image is not None:
+        st.image(uploaded_image, caption="Uploaded Image", use_column_width=True)
 
-    # ---------- STEP 1: OCR ----------
-    if st.button("📖 Extract Text from Image", type="primary"):
-        try:
-            with st.spinner("Running OCR on image..."):
-                extracted_text, processed = ocr_image(image, src_lang_name)
+        if st.button("📖 Extract Text from Image", key="btn_extract_img", type="primary"):
+            # EasyOCR language – keep English (other Indian langs not well supported)
+            ocr_lang_code = "en"
 
-            if processed is not None:
-                st.markdown("**Image after preprocessing (for OCR):**")
-                st.image(processed, use_column_width=True)
+            with st.spinner("Running OCR (this may take a few seconds)..."):
+                extracted = extract_text_from_image(
+                    uploaded_image,
+                    ocr_lang=ocr_lang_code,
+                )
 
-            extracted_text = (extracted_text or "").strip()
+            extracted = (extracted or "").strip()
+            st.session_state["img_text_input"] = extracted
 
-            editable_text = st.text_area(
-                "Extracted text (you can edit / correct before translation)",
-                value=extracted_text,
-                height=180,
-                key="img_extracted_text",
+            if not extracted:
+                st.warning(
+                    "No text could be confidently extracted from the image.\n\n"
+                    "You can type the content manually in the box below."
+                )
+            elif extracted.startswith("[OCR error"):
+                st.error(
+                    "There was an error while reading the text from the image. "
+                    "You can type the text manually in the box below."
+                )
+
+    # --- Editable text area: binds to session_state key but we DON'T assign to it manually ---
+    editable_text = st.text_area(
+        "Text from image (you can edit or type manually if OCR is wrong)",
+        value=st.session_state.get("img_text_input", ""),
+        height=180,
+        key="img_text_input",
+    )
+
+    # --- Translate whatever is currently in the text box + TTS ---
+    if st.button("🔁 Translate Above Text", key="btn_translate_img", type="primary"):
+        final_text = (editable_text or "").strip()
+
+        if not final_text:
+            st.error(
+                "Please enter the text from the image (either by extracting or typing manually) before translating."
             )
+            return
 
-            if st.button("🔁 Translate Above Text", type="primary"):
-                final_text = (editable_text or "").strip()
-                if not final_text:
-                    st.error("Please enter or correct the text before translation.")
-                    return
+        with st.spinner("Translating text..."):
+            translated = img_translate_text(final_text, tgt_code)
 
-                with st.spinner("Translating text..."):
-                    translated_text = translate_text(
-                        final_text, src_lang_name, tgt_lang_name
-                    )
+        st.subheader("Translated Text")
+        st.text_area(
+            "Translation",
+            value=translated,
+            height=180,
+            key="img_translated_text",
+        )
 
-                _write_result_block("Final text to translate", final_text)
-                _write_result_block("Translated text", translated_text)
-
-                # TTS
-                if translated_text and translated_text.strip():
-                    MAX_TTS_CHARS = 3000
-                    tts_text = translated_text[:MAX_TTS_CHARS]
-
-                    tts_path = text_to_speech_file(tts_text, tgt_lang_name)
-                    if tts_path:
-                        with open(tts_path, "rb") as f:
-                            audio_bytes = f.read()
-                        st.markdown("**Translated audio:**")
-                        st.audio(audio_bytes, format="audio/mp3")
-                        cleanup_temp_file(tts_path)
-                    else:
-                        st.warning(
-                            "Could not generate audio for the translated text."
-                        )
-
-        except Exception as e:
-            st.error(f"Error while processing image: {e}")
-
+        # --- TTS for translated text ---
+        if translated and not translated.startswith("[Translation error"):
+            try:
+                MAX_TTS_CHARS = 3000
+                tts_input = translated[:MAX_TTS_CHARS]
+                tts_path = text_to_speech_file(tts_input, tgt_lang_name)
+                if tts_path:
+                    with open(tts_path, "rb") as f:
+                        audio_bytes = f.read()
+                    st.markdown("**Translated audio (from image text):**")
+                    st.audio(audio_bytes, format="audio/mp3")
+                    cleanup_temp_file(tts_path)
+                else:
+                    st.warning("Could not generate audio for the translated text.")
+            except Exception as e:
+                st.error(f"Error while generating TTS for image translation: {e}")
 
 # =========================================================
 # MAIN APP LAYOUT
@@ -527,7 +612,6 @@ def main():
 
     else:  # Doctor–Patient Chat
         show_conversation(theme_choice, languages)
-        # Microphones can be wired into conversation logic if needed
         mic_audio_patient = medical_mic("Patient Microphone", key="conv_patient")
         mic_audio_doctor = medical_mic("Doctor Microphone", key="conv_doctor")
 
