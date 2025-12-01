@@ -1,4 +1,4 @@
-# main_app.py – Premium Multimodal Medical Translator
+# main_app.py – Multimodal AI Medical Translator (Streamlit)
 
 from pathlib import Path
 import tempfile
@@ -15,7 +15,7 @@ from stt import speech_to_text
 from translate import translate_text
 from tts import text_to_speech_file, cleanup_temp_file
 from ocr import ocr_image
-from languages import has_sr_support  # (if used elsewhere)
+from languages import has_sr_support  # in case other modules use it
 
 
 # =========================================================
@@ -25,15 +25,29 @@ from languages import has_sr_support  # (if used elsewhere)
 BASE_DIR = Path(__file__).resolve().parent          # .../src
 LOGO_PATH = BASE_DIR / "assets" / "logo.png"        # src/assets/logo.png
 
+# Use logo as tab icon if it exists, otherwise fall back to emoji
+if LOGO_PATH.exists():
+    page_icon = str(LOGO_PATH)
+else:
+    page_icon = "🩺"
+
 st.set_page_config(
     page_title="Multimodal AI Medical Translator",
-    page_icon=str(LOGO_PATH),
+    page_icon=page_icon,
     layout="wide",
 )
 
-print("LOGO PATH:", LOGO_PATH)
-print("EXISTS?:", LOGO_PATH.exists())
-logo = Image.open(LOGO_PATH)
+
+def load_logo():
+    """Load logo safely; return None if it fails."""
+    try:
+        if LOGO_PATH.exists():
+            print("LOGO PATH:", LOGO_PATH)
+            print("EXISTS?:", LOGO_PATH.exists())
+            return Image.open(LOGO_PATH)
+    except Exception as e:
+        print("Logo load failed:", e)
+    return None
 
 
 # =========================================================
@@ -41,9 +55,13 @@ logo = Image.open(LOGO_PATH)
 # =========================================================
 
 header_col_logo, header_col_text = st.columns([1, 5])
+logo = load_logo()
 
 with header_col_logo:
-    st.image(logo, width=80)
+    if logo is not None:
+        st.image(logo, width=80)
+    else:
+        st.markdown("🩺")  # simple fallback icon
 
 with header_col_text:
     st.markdown(
@@ -178,7 +196,6 @@ def show_speech_tab(languages: list[str]):
 
     st.markdown("")
 
-    # Translate button
     translate_clicked = st.button("🔁 Translate Speech", type="primary")
 
     if not translate_clicked:
@@ -334,7 +351,7 @@ def show_text_tab(languages: list[str]):
 
 
 # =========================================================
-# TRANSLATOR – IMAGE TAB (Hybrid OCR + Editable Text)
+# TRANSLATOR – IMAGE TAB (Tesseract OCR)
 # =========================================================
 
 def show_image_tab(languages: list[str]):
@@ -391,78 +408,61 @@ def show_image_tab(languages: list[str]):
     if not uploaded_img:
         return
 
-    # Show original image
     image = Image.open(uploaded_img).convert("RGB")
     st.image(image, caption="Uploaded image", use_column_width=True)
 
-    # --- STEP 1: OCR BUTTON ---
-    if st.button("📖 Extract Text from Image", type="primary", key="extract_img"):
+    # ---------- STEP 1: OCR ----------
+    if st.button("📖 Extract Text from Image", type="primary"):
         try:
-            with st.spinner("Running OCR (printed + handwritten)..."):
+            with st.spinner("Running OCR on image..."):
                 extracted_text, processed = ocr_image(image, src_lang_name)
+
+            if processed is not None:
+                st.markdown("**Image after preprocessing (for OCR):**")
+                st.image(processed, use_column_width=True)
 
             extracted_text = (extracted_text or "").strip()
 
-            # Save in session_state so it persists for the next rerun
-            st.session_state["ocr_extracted_text"] = extracted_text
+            editable_text = st.text_area(
+                "Extracted text (you can edit / correct before translation)",
+                value=extracted_text,
+                height=180,
+                key="img_extracted_text",
+            )
 
-            if processed is not None:
-                st.markdown("**Image used by OCR (after preprocessing):**")
-                st.image(processed, use_column_width=True)
+            if st.button("🔁 Translate Above Text", type="primary"):
+                final_text = (editable_text or "").strip()
+                if not final_text:
+                    st.error("Please enter or correct the text before translation.")
+                    return
 
-            if not extracted_text:
-                st.warning(
-                    "OCR could not confidently read this image. "
-                    "If it's very messy handwriting, you may need to type the text."
-                )
-
-        except Exception as e:
-            st.error(f"Error while running OCR: {e}")
-
-    # --- EDITABLE TEXT (always visible once OCR has run) ---
-    current_ocr_text = st.session_state.get("ocr_extracted_text", "")
-
-    editable_text = st.text_area(
-        "Extracted text (you can edit or type manually):",
-        value=current_ocr_text,
-        height=180,
-        key="ocr_edit_box",
-    )
-
-    # --- STEP 2: TRANSLATE BUTTON ---
-    if st.button("🔁 Translate Above Text", type="primary", key="translate_img"):
-        final_text = (editable_text or "").strip()
-        if not final_text:
-            st.error("Please enter or correct the text before translation.")
-            return
-
-        try:
-            with st.spinner("Translating text..."):
-                translated_text = translate_text(
-                    final_text, src_lang_name, tgt_lang_name
-                )
-
-            _write_result_block("Final text to translate", final_text)
-            _write_result_block("Translated text", translated_text)
-
-            # TTS
-            if translated_text and translated_text.strip():
-                MAX_TTS_CHARS = 3000
-                tts_text = translated_text[:MAX_TTS_CHARS]
-
-                tts_path = text_to_speech_file(tts_text, tgt_lang_name)
-                if tts_path:
-                    with open(tts_path, "rb") as f:
-                        audio_bytes = f.read()
-                    st.markdown("**Translated audio:**")
-                    st.audio(audio_bytes, format="audio/mp3")
-                    cleanup_temp_file(tts_path)
-                else:
-                    st.warning(
-                        "Could not generate audio for the translated text."
+                with st.spinner("Translating text..."):
+                    translated_text = translate_text(
+                        final_text, src_lang_name, tgt_lang_name
                     )
+
+                _write_result_block("Final text to translate", final_text)
+                _write_result_block("Translated text", translated_text)
+
+                # TTS
+                if translated_text and translated_text.strip():
+                    MAX_TTS_CHARS = 3000
+                    tts_text = translated_text[:MAX_TTS_CHARS]
+
+                    tts_path = text_to_speech_file(tts_text, tgt_lang_name)
+                    if tts_path:
+                        with open(tts_path, "rb") as f:
+                            audio_bytes = f.read()
+                        st.markdown("**Translated audio:**")
+                        st.audio(audio_bytes, format="audio/mp3")
+                        cleanup_temp_file(tts_path)
+                    else:
+                        st.warning(
+                            "Could not generate audio for the translated text."
+                        )
+
         except Exception as e:
-            st.error(f"Error while translating OCR text: {e}")
+            st.error(f"Error while processing image: {e}")
 
 
 # =========================================================
@@ -527,10 +527,19 @@ def main():
 
     else:  # Doctor–Patient Chat
         show_conversation(theme_choice, languages)
-        # These mics can be wired into your conversation logic as needed
+        # Microphones can be wired into conversation logic if needed
         mic_audio_patient = medical_mic("Patient Microphone", key="conv_patient")
         mic_audio_doctor = medical_mic("Doctor Microphone", key="conv_doctor")
 
 
+# =========================================================
+# ENTRY POINT – show errors on the page instead of just "Oh no"
+# =========================================================
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        st.title("App failed to start")
+        st.error("An error happened while starting the app:")
+        st.exception(e)
