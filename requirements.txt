@@ -12,3 +12,15 @@ streamlit-audiorec
 audio-recorder-streamlit
 SpeechRecognition
 fpdf
+transformers
+pytesseract
+opencv-python
+
+
+
+
+
+
+
+
+
