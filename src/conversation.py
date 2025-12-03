@@ -111,17 +111,13 @@ def _process_turn(role: str, audio_data, src_lang: str, tgt_lang: str):
     audio -> text -> translation -> TTS + history
     `audio_data` is what comes back from medical_mic (usually bytes).
     """
-    # --- 1) Validate audio ---
     if audio_data is None:
         st.error(f"Please record {role.lower()} audio first.")
         return
 
-    # normalise to raw bytes
     audio_bytes = audio_data
     if isinstance(audio_bytes, tuple):
-        # handle potential (bytes, sample_rate) style returns
         audio_bytes = audio_bytes[0]
-
     if hasattr(audio_bytes, "read"):
         audio_bytes = audio_bytes.read()
 
@@ -132,7 +128,6 @@ def _process_turn(role: str, audio_data, src_lang: str, tgt_lang: str):
             st.error("Internal error: could not convert recorded audio.")
             return
 
-    # --- 2) Save audio to a temp WAV file ---
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
     tmp.write(audio_bytes)
     tmp.flush()
@@ -140,29 +135,25 @@ def _process_turn(role: str, audio_data, src_lang: str, tgt_lang: str):
     wav_path = tmp.name
 
     try:
-        # --- 3) Speech-to-text ---
         with st.spinner(f"Recognizing {role} speech..."):
+            # ✅ NO keyword argument here
             original_text = speech_to_text(wav_path, src_lang)
 
         if not original_text or not original_text.strip():
             st.error(f"Could not recognize {role.lower()} speech. Please try again.")
             return
 
-        # --- 4) Translate + TTS ---
         with st.spinner("Translating and generating reply audio..."):
             translated_text = translate_text(original_text, src_lang, tgt_lang)
 
-            # Show text in UI
             st.markdown(
                 f"**{role} said:** {original_text}<br/>"
                 f"**Translated:** {translated_text}",
                 unsafe_allow_html=True,
             )
 
-            # Add to history
             _append_message(role, src_lang, tgt_lang, original_text, translated_text)
 
-            # TTS playback
             if translated_text and translated_text.strip():
                 tts_path = text_to_speech_file(translated_text, tgt_lang)
                 if tts_path:
@@ -172,69 +163,3 @@ def _process_turn(role: str, audio_data, src_lang: str, tgt_lang: str):
                     cleanup_temp_file(tts_path)
     finally:
         cleanup_temp_file(wav_path)
-
-
-def show_conversation(theme_choice: str, languages: list[str] | None = None):
-    """
-    Main entry for the Doctor–Patient chat tab.
-    """
-    _init_history()
-
-    if languages is None:
-        languages = get_all_languages()
-
-    st.markdown(
-        """
-        <div class="app-card" style="margin-top:0.8rem;">
-          <div class="pill-label">Doctor–Patient chat</div>
-          <div class="main-title" style="margin-bottom:0;">Live two-way translation</div>
-          <div class="main-subtitle">
-            Use the microphones below for each side. Each turn is recognized, translated,
-            spoken out loud, and added to the conversation log.
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    col_doc, col_pat = st.columns(2)
-
-    with col_doc:
-        st.markdown("#### 👩‍⚕️ Doctor side")
-        doctor_lang = st.selectbox("Doctor speaks", languages, key="conv_doc_lang")
-
-    with col_pat:
-        st.markdown("#### 🧑‍🌾 Patient side")
-        patient_lang = st.selectbox("Patient speaks", languages, key="conv_pat_lang")
-
-    st.markdown("---")
-
-    # Microphones
-    col_mic_doc, col_mic_pat = st.columns(2)
-
-    with col_mic_doc:
-        st.markdown("##### Doctor microphone")
-        doc_audio = medical_mic("Doctor microphone", key="conv_doc_mic")
-
-    with col_mic_pat:
-        st.markdown("##### Patient microphone")
-        pat_audio = medical_mic("Patient microphone", key="conv_pat_mic")
-
-    st.markdown("")
-
-    col_buttons = st.columns(2)
-    with col_buttons[0]:
-        doc_to_pat = st.button("👩‍⚕️ Doctor → Patient", use_container_width=True)
-    with col_buttons[1]:
-        pat_to_doc = st.button("🧑‍🌾 Patient → Doctor", use_container_width=True)
-
-    if doc_to_pat:
-        _process_turn("Doctor", doc_audio, doctor_lang, patient_lang)
-
-    if pat_to_doc:
-        _process_turn("Patient", pat_audio, patient_lang, doctor_lang)
-
-    st.markdown("---")
-    st.markdown("### 🗂 Conversation history")
-    _render_history()
-    _download_history_pdf_button()
