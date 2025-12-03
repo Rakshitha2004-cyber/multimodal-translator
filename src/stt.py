@@ -1,6 +1,6 @@
 # stt.py – final version using SpeechRecognition + Google Web Speech API
 
-from __future__ import annotations
+from __future__ import annotations  # MUST be the very first line
 
 import speech_recognition as sr
 import streamlit as st
@@ -47,11 +47,14 @@ def speech_to_text(audio_path: str, language_name: str) -> str:
     recognizer = sr.Recognizer()
     stt_lang = _stt_code_for_language(language_name)
 
+    # Optional debug:
+    # st.write(f"Using STT language code: {stt_lang}")
+
     try:
         with sr.AudioFile(audio_path) as source:
             audio_data = recognizer.record(source)
 
-        # You need internet for this to work
+        # Needs internet
         text = recognizer.recognize_google(audio_data, language=stt_lang)
         return text or ""
     except sr.UnknownValueError:
