@@ -1,6 +1,4 @@
-# main_app.py – Multimodal AI Medical Translator (Streamlit)# main_app.py – Multimodal AI Medical Translator (Streamlit)
-
-# main_app.py – Multimodal AI Medical Translator (Streamlit)
+## main_app.py – Multimodal AI Medical Translator (Streamlit)
 
 from pathlib import Path
 import tempfile
@@ -19,7 +17,6 @@ from conversation import show_conversation
 from stt import speech_to_text
 from translate import translate_text          # your existing translator
 from tts import text_to_speech_file, cleanup_temp_file
-from ocr import ocr_image                     # kept in case used elsewhere
 from languages import has_sr_support
 
 
@@ -579,9 +576,8 @@ def main():
             show_image_tab(languages)
 
     else:  # Doctor–Patient Chat
+        # 👇 All mic + conversation UI is handled INSIDE show_conversation
         show_conversation(theme_choice, languages)
-        mic_audio_patient = medical_mic("Patient Microphone", key="conv_patient")
-        mic_audio_doctor = medical_mic("Doctor Microphone", key="conv_doctor")
 
 
 # =========================================================
