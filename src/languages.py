@@ -1,36 +1,55 @@
 # languages.py
+# Crash-safe language utilities
 
-from config import SUPPORTED_LANGUAGES
+try:
+    from config import SUPPORTED_LANGUAGES
+except Exception:
+    SUPPORTED_LANGUAGES = {"English": "en"}
 
 
 def get_all_languages() -> list[str]:
-    """Return list of language names for dropdowns."""
-    return list(SUPPORTED_LANGUAGES.keys())
+    """
+    Return list of language names for dropdowns.
+    Never crashes even if config import fails.
+    """
+    try:
+        return list(SUPPORTED_LANGUAGES.keys())
+    except Exception:
+        return ["English"]
 
 
 def lang_code_for_translation(lang_name: str) -> str:
     """
-    Return code used for translation / TTS.
-
-    We store codes in SUPPORTED_LANGUAGES.
-    If something is missing, fall back to English.
+    Return ISO code used for translation / TTS.
+    Falls back to English safely.
     """
-    return SUPPORTED_LANGUAGES.get(lang_name, "en")
+    if not lang_name:
+        return "en"
+
+    try:
+        return SUPPORTED_LANGUAGES.get(lang_name, "en")
+    except Exception:
+        return "en"
 
 
 def has_sr_support(lang: str) -> bool:
     """
-    For UI purposes, we will treat all SUPPORTED_LANGUAGES as supported.
-    (In reality, SpeechRecognition/Google STT works for many of them,
-    but not literally every single one. For your project demo, this is fine.)
+    UI helper – assume supported if in language list.
+    Safe fallback for demos.
     """
-    return lang in SUPPORTED_LANGUAGES
+    if not lang:
+        return False
+
+    try:
+        return lang in SUPPORTED_LANGUAGES
+    except Exception:
+        return False
 
 
 def code_for_easyocr(lang_name: str) -> str:
     """
-    Map UI language name to EasyOCR code for image OCR.
-    Only some languages are supported by EasyOCR; others fall back to 'en'.
+    Map UI language name to EasyOCR language code.
+    Falls back to English if unsupported.
     """
     mapping = {
         "English": "en",
@@ -52,4 +71,11 @@ def code_for_easyocr(lang_name: str) -> str:
         "Korean": "ko",
         "Thai": "th",
     }
-    return mapping.get(lang_name, "en")
+
+    if not lang_name:
+        return "en"
+
+    try:
+        return mapping.get(lang_name, "en")
+    except Exception:
+        return "en"

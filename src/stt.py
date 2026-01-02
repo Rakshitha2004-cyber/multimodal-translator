@@ -1,68 +1,85 @@
-# stt.py – final version using SpeechRecognition + Google Web Speech API
+from __future__ import annotations
 
-from __future__ import annotations  # MUST be the very first line
-
+import os
 import speech_recognition as sr
-import streamlit as st
-
-from languages import lang_code_for_translation
 
 
+# --------------------------------------------------
+# INTERNAL: map UI language → Google STT language code
+# --------------------------------------------------
 def _stt_code_for_language(lang_name: str) -> str:
     """
-    Map our language name to a code usable by Google's STT.
-
-    We reuse lang_code_for_translation(). If it returns something
-    empty or strange, we fall back to English ("en-US").
+    Convert UI language name to Google Speech-to-Text code.
+    Uses India-specific codes where applicable.
+    Always returns a safe default.
     """
     if not isinstance(lang_name, str):
-        return "en-US"
+        return "en-IN"
 
-    code = (lang_code_for_translation(lang_name) or "").strip().lower()
+    code_map = {
+        "English": "en-IN",
+        "Hindi": "hi-IN",
+        "Tamil": "ta-IN",
+        "Telugu": "te-IN",
+        "Kannada": "kn-IN",
+        "Malayalam": "ml-IN",
+        "Marathi": "mr-IN",
+        "Bengali": "bn-IN",
+        "Gujarati": "gu-IN",
+        "Punjabi": "pa-IN",
+        "Urdu": "ur-IN",
+    }
 
-    # Google Web Speech API usually accepts simple ISO codes like "en", "hi", "ar".
-    # If we don't get anything, fall back to English (US).
-    if not code:
-        return "en-US"
-
-    return code
+    return code_map.get(lang_name, "en-IN")
 
 
-def speech_to_text(audio_path: str, language_name: str) -> str:
+# --------------------------------------------------
+# MAIN API
+# --------------------------------------------------
+def speech_to_text(audio_path: str, source_language_name: str) -> str:
     """
-    Convert speech audio file to text.
+    Convert speech audio file (WAV) to text using Google Speech Recognition.
 
-    Parameters
-    ----------
-    audio_path : str
-        Path to a WAV audio file.
-    language_name : str
-        Human-readable language name (e.g. "English", "Hindi").
+    This function is:
+    - crash-safe
+    - UI-independent
+    - suitable for Streamlit Cloud
 
-    Returns
-    -------
-    str
-        Recognized text, or "" if recognition failed.
+    Returns:
+        Recognized text (str) or empty string on failure
     """
+    # ---- basic validation ----
+    if not audio_path or not os.path.exists(audio_path):
+        return ""
+
     recognizer = sr.Recognizer()
-    stt_lang = _stt_code_for_language(language_name)
+    recognizer.energy_threshold = 300
+    recognizer.pause_threshold = 0.8
 
-    # Optional debug:
-    # st.write(f"Using STT language code: {stt_lang}")
+    stt_lang = _stt_code_for_language(source_language_name)
 
     try:
         with sr.AudioFile(audio_path) as source:
             audio_data = recognizer.record(source)
 
-        # Needs internet
-        text = recognizer.recognize_google(audio_data, language=stt_lang)
-        return text or ""
+        if audio_data is None:
+            return ""
+
+        text = recognizer.recognize_google(
+            audio_data,
+            language=stt_lang
+        )
+
+        return text.strip() if text else ""
+
     except sr.UnknownValueError:
-        # Speech was not understood
+        # Speech not understood (very common, not an error)
         return ""
-    except sr.RequestError as e:
-        st.error(f"Speech recognition error (API): {e}")
+
+    except sr.RequestError:
+        # API/network error → fail silently, don't crash UI
         return ""
-    except Exception as e:
-        st.error(f"Speech recognition error: {e}")
+
+    except Exception:
+        # Any unexpected issue → safe fallback
         return ""

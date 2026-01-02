@@ -1,164 +1,95 @@
 # config.py
+# Central, crash-safe configuration file
 
-from deep_translator import GoogleTranslator
-
-
-def build_supported_languages():
-    """
-    (Optional utility)
-    Ask deep_translator (Google Translate) for ALL supported languages
-    and convert them into our internal format.
-    Not used right now, but you can keep it for experiments.
-    """
-    langs = GoogleTranslator().get_supported_languages(as_dict=True)
-    supported = {}
-    for name_lower, code in langs.items():
-        display_name = name_lower.title()
-        supported[display_name] = {"code": code}
-    return supported
+# --------------------------------------------------
+# Translation backend (optional, never mandatory)
+# --------------------------------------------------
+try:
+    from deep_translator import GoogleTranslator
+except Exception:
+    GoogleTranslator = None
 
 
-# NOTE: GOOGLE_TRANSLATE_API_KEY is no longer used. You can delete this line
-# or leave it, but it is not needed anymore.
-# GOOGLE_TRANSLATE_API_KEY = "...."   # <--- remove or comment this out
-
-
-# Master list of supported languages for the UI and translation.
-# Key = label shown to user, Value = ISO code used for translation.
+# --------------------------------------------------
+# MASTER SUPPORTED LANGUAGES
+# IMPORTANT:
+# - Value MUST always be a string language code
+# - Other files assume: {"English": "en"}
+# --------------------------------------------------
 SUPPORTED_LANGUAGES = {
+    "English": "en",
+    "Hindi": "hi",
+    "Kannada": "kn",
+    "Tamil": "ta",
+    "Telugu": "te",
+    "Malayalam": "ml",
+    "Marathi": "mr",
+    "Bengali": "bn",
+    "Gujarati": "gu",
+    "Punjabi": "pa",
+    "Urdu": "ur",
+
+    # International (safe for text translation)
+    "French": "fr",
+    "Spanish": "es",
+    "German": "de",
+    "Italian": "it",
+    "Portuguese": "pt",
+    "Russian": "ru",
+    "Japanese": "ja",
+    "Korean": "ko",
+    "Chinese (Simplified)": "zh-cn",
+    "Chinese (Traditional)": "zh-tw",
+    "Arabic": "ar",
+}
+
+# --------------------------------------------------
+# OPTIONAL: extended languages (TEXT-ONLY use)
+# DO NOT use these for STT / TTS
+# --------------------------------------------------
+EXTENDED_TEXT_LANGUAGES = {
     "Afrikaans": "af",
     "Albanian": "sq",
     "Amharic": "am",
-    "Arabic": "ar",
     "Armenian": "hy",
     "Assamese": "as",
-    "Aymara": "ay",
-    "Azerbaijani": "az",
-    "Bambara": "bm",
     "Basque": "eu",
-    "Belarusian": "be",
-    "Bengali": "bn",
-    "Bhojpuri": "bho",
-    "Bosnian": "bs",
     "Bulgarian": "bg",
     "Catalan": "ca",
-    "Cebuano": "ceb",
-    "Chinese (Simplified)": "zh-cn",
-    "Chinese (Traditional)": "zh-tw",
-    "Corsican": "co",
     "Croatian": "hr",
     "Czech": "cs",
     "Danish": "da",
-    "Dhivehi": "dv",
-    "Dogri": "doi",
     "Dutch": "nl",
-    "English": "en",
     "Esperanto": "eo",
     "Estonian": "et",
-    "Ewe": "ee",
-    "Filipino": "fil",
     "Finnish": "fi",
-    "French": "fr",
-    "Frisian": "fy",
-    "Galician": "gl",
-    "Georgian": "ka",
-    "German": "de",
     "Greek": "el",
-    "Guarani": "gn",
-    "Gujarati": "gu",
-    "Haitian Creole": "ht",
-    "Hausa": "ha",
-    "Hawaiian": "haw",
     "Hebrew": "he",
-    "Hindi": "hi",
-    "Hmong": "hmn",
     "Hungarian": "hu",
-    "Icelandic": "is",
-    "Igbo": "ig",
-    "Ilocano": "ilo",
     "Indonesian": "id",
     "Irish": "ga",
-    "Italian": "it",
-    "Japanese": "ja",
-    "Javanese": "jv",
-    "Kannada": "kn",
-    "Kazakh": "kk",
-    "Khmer": "km",
-    "Kinyarwanda": "rw",
-    "Konkani": "gom",
-    "Korean": "ko",
-    "Krio": "kri",
-    "Kurdish (Kurmanji)": "ku",
-    "Kurdish (Sorani)": "ckb",
-    "Kyrgyz": "ky",
-    "Lao": "lo",
     "Latin": "la",
     "Latvian": "lv",
-    "Lingala": "ln",
     "Lithuanian": "lt",
-    "Luganda": "lg",
-    "Luxembourgish": "lb",
-    "Macedonian": "mk",
-    "Maithili": "mai",
-    "Malagasy": "mg",
-    "Malay": "ms",
-    "Malayalam": "ml",
-    "Maltese": "mt",
-    "Maori": "mi",
-    "Marathi": "mr",
-    "Meitei (Manipuri)": "mni-mtei",
-    "Mizo": "lus",
-    "Mongolian": "mn",
-    "Myanmar (Burmese)": "my",
-    "Nepali": "ne",
     "Norwegian": "no",
-    "Nyanja (Chichewa)": "ny",
-    "Odia (Oriya)": "or",
-    "Oromo": "om",
-    "Pashto": "ps",
-    "Persian (Farsi)": "fa",
     "Polish": "pl",
-    "Portuguese": "pt",
-    "Punjabi": "pa",
-    "Quechua": "qu",
     "Romanian": "ro",
-    "Russian": "ru",
-    "Samoan": "sm",
-    "Sanskrit": "sa",
-    "Santali": "sat",
-    "Scots Gaelic": "gd",
-    "Serbian": "sr",
-    "Shona": "sn",
-    "Sindhi": "sd",
-    "Sinhala": "si",
     "Slovak": "sk",
     "Slovenian": "sl",
-    "Somali": "so",
-    "Spanish": "es",
-    "Sundanese": "su",
-    "Swahili": "sw",
     "Swedish": "sv",
-    "Tagalog": "tl",
-    "Tajik": "tg",
-    "Tamil": "ta",
-    "Tatar": "tt",
-    "Telugu": "te",
     "Thai": "th",
-    "Tigrinya": "ti",
-    "Tsonga": "ts",
     "Turkish": "tr",
-    "Turkmen": "tk",
-    "Twi (Akan)": "ak",
     "Ukrainian": "uk",
-    "Urdu": "ur",
-    "Uyghur": "ug",
-    "Uzbek": "uz",
     "Vietnamese": "vi",
-    "Welsh": "cy",
-    "Xhosa": "xh",
-    "Yiddish": "yi",
-    "Yoruba": "yo",
-    "Zulu": "zu",
 }
 
 
+# --------------------------------------------------
+# SAFE ACCESS HELPERS
+# --------------------------------------------------
+def get_lang_code(lang_name: str) -> str:
+    """
+    Always return a valid language code.
+    Never crash.
+    """
+    return SUPPORTED_LANGUAGES.get(lang_name, "en")

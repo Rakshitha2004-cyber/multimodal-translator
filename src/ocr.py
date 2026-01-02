@@ -88,3 +88,4 @@ def ocr_image(pil_img: Image.Image, lang_name: str) -> Tuple[str, np.ndarray]:
         text = ""
 
     return text.strip(), processed
+

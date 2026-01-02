@@ -1,5 +1,3 @@
-# tts.py – final version using gTTS
-
 from __future__ import annotations
 
 import os
@@ -11,61 +9,59 @@ from gtts import gTTS
 from languages import lang_code_for_translation
 
 
-def _tts_code_for_language(lang_name: str) -> str:
+def text_to_speech(text: str, language_name: str) -> None:
     """
-    Get a language code for gTTS based on the language name.
-    We reuse lang_code_for_translation and fall back to 'en'.
+    Convert text to speech and play audio directly in Streamlit.
+    Used by conversation.py
     """
-    if not isinstance(lang_name, str):
-        return "en"
+    if not text:
+        return
 
-    code = lang_code_for_translation(lang_name) or ""
-    code = code.strip().lower()
+    lang_code = (lang_code_for_translation(language_name) or "en").lower()
 
-    if not code:
-        return "en"
+    try:
+        tts = gTTS(text=text, lang=lang_code)
 
-    return code
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
+            tts.save(fp.name)
+            audio_path = fp.name
+
+        st.audio(audio_path)
+
+    except Exception as e:
+        st.error(f"TTS error: {e}")
 
 
 def text_to_speech_file(text: str, language_name: str) -> str | None:
     """
-    Convert text to speech using gTTS and return path to a temp MP3 file.
-
-    Returns:
-        str path to MP3, or None if TTS failed.
+    Convert text to speech and return the audio file path.
+    Used by main_app.py
     """
-    if not text or not text.strip():
+    if not text:
         return None
 
-    tts_lang = _tts_code_for_language(language_name)
+    lang_code = (lang_code_for_translation(language_name) or "en").lower()
 
     try:
-        tts_obj = gTTS(text=text, lang=tts_lang)
+        tts = gTTS(text=text, lang=lang_code)
 
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-        tmp_path = tmp.name
-        tmp.close()
+        tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+        tts.save(tmp_file.name)
 
-        tts_obj.save(tmp_path)
-
-        if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
-            return tmp_path
-
-        st.error("TTS error: generated audio file is empty.")
-        return None
+        return tmp_file.name
 
     except Exception as e:
-        st.error(f"TTS error: {e}")
+        st.error(f"TTS file generation error: {e}")
         return None
 
 
-def cleanup_temp_file(path: str | None) -> None:
-    """Safely delete a temporary file."""
-    if not path:
-        return
+def cleanup_temp_file(file_path: str | None) -> None:
+    """
+    Safely delete temporary audio files.
+    Used by main_app.py
+    """
     try:
-        if os.path.exists(path):
-            os.remove(path)
-    except OSError:
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
+    except Exception:
         pass
